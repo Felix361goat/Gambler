@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 import pytz
+from selection.ev_calculator import calculate_ev, calculate_ev_with_margin, breakeven_win_rate
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,8 @@ def select_daily_bets(all_predictions: list, config: dict, week_watchable_count:
     min_ev = betting_cfg.get("min_ev_threshold", 0.03)
     watchable_ev = betting_cfg.get("watchable_ev_threshold", 0.024)
     max_bets = betting_cfg.get("max_daily_bets", 10)
+    min_odds = betting_cfg.get("min_odds", 1.50)
+    safety_margin = betting_cfg.get("probability_safety_margin", 0.10)
     ev_override = betting_cfg.get("ev_override_factor", 0.80) if isinstance(clubs_cfg, dict) else 0.80
 
     # Handle favorite_clubs being list vs dict (as in config.yaml)
@@ -46,9 +49,16 @@ def select_daily_bets(all_predictions: list, config: dict, week_watchable_count:
         ev = pred.get("ev_score", 0.0)
         home = pred.get("home_team", "")
         away = pred.get("away_team", "")
+        bookmaker_odds = pred.get("bookmaker_odds", 0)
+        our_probability = pred.get("our_probability", 0)
         is_fav = any(club in [home, away] for club in favorite_clubs)
         threshold = min_ev * ev_override if is_fav else min_ev
-        if ev >= threshold:
+        # Minimum odds check: low odds require very high win rates — too risky
+        if bookmaker_odds < min_odds:
+            continue
+        # Conservative EV check: apply safety margin haircut on probability
+        ev_conservative = calculate_ev_with_margin(our_probability, bookmaker_odds, safety_margin)
+        if ev >= threshold and ev_conservative >= threshold:
             pred["is_favorite_club"] = is_fav
             qualified.append(pred)
 

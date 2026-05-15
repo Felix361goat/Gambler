@@ -6,6 +6,8 @@ betting:
   bankroll_paper: 1000.0
   kelly_fraction: 0.25
   max_stake_percent: 0.05
+  probability_safety_margin: 0.10  # 10% Haircut auf unsere Prob vor EV-Berechnung
+  min_odds: 1.50                    # Unter 1.50 braucht man >67% Win Rate — zu riskant
 
 leagues:
   priority:

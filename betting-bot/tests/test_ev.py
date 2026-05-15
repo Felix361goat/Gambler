@@ -75,3 +75,44 @@ class TestKelly:
         config = {"betting": {"kelly_fraction": 0.25, "max_stake_percent": 0.05}}
         stake = kelly_stake(0.10, 1.50, 1000.0, config)
         assert stake >= 0.0
+
+
+class TestRobustness:
+    def test_ev_with_margin_lower_than_raw(self):
+        from selection.ev_calculator import calculate_ev_with_margin
+        raw = calculate_ev(0.55, 2.10)
+        conservative = calculate_ev_with_margin(0.55, 2.10, safety_margin=0.10)
+        assert conservative < raw
+
+    def test_ev_with_margin_still_positive(self):
+        from selection.ev_calculator import calculate_ev_with_margin
+        # P=0.60, Odds=2.10: konservativ P=0.54, EV=(0.54*2.10)-1=+13.4%
+        ev = calculate_ev_with_margin(0.60, 2.10, safety_margin=0.10)
+        assert ev > 0
+
+    def test_breakeven_win_rate(self):
+        from selection.ev_calculator import breakeven_win_rate
+        assert abs(breakeven_win_rate(2.0) - 0.50) < 1e-4
+        assert abs(breakeven_win_rate(1.5) - 0.6667) < 1e-3
+        assert abs(breakeven_win_rate(3.0) - 0.3333) < 1e-3
+
+    def test_breakeven_below_min_odds_threshold(self):
+        from selection.ev_calculator import breakeven_win_rate
+        # Odds unter 1.50 → braucht >66.7% Win Rate → zu unsicher
+        be = breakeven_win_rate(1.40)
+        assert be > 0.666
+
+    def test_scenario_pnl_profitable_at_70pct(self):
+        from selection.ev_calculator import scenario_pnl
+        bets = [
+            {"stake_recommended": 25.0, "bookmaker_odds": 2.10, "our_probability": 0.55},
+            {"stake_recommended": 20.0, "bookmaker_odds": 1.90, "our_probability": 0.58},
+        ]
+        scenarios = scenario_pnl(bets)
+        # Bei 70% Win Rate sollte P&L positiv sein
+        assert scenarios[70] > 0, f"Expected positive P&L at 70%, got {scenarios[70]}"
+
+    def test_scenario_pnl_empty_bets(self):
+        from selection.ev_calculator import scenario_pnl
+        result = scenario_pnl([])
+        assert all(v == 0.0 for v in result.values())

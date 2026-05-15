@@ -1,5 +1,6 @@
 import logging
 from datetime import date
+from selection.ev_calculator import scenario_pnl
 
 logger = logging.getLogger(__name__)
 
@@ -63,5 +64,14 @@ def format_morning_briefing(bets: list, performance: dict) -> str:
         f"📋 Paper Mode: {settled}/200\n\n"
         f"Tippe /placed N oder /skip N"
     )
+
+    # Szenario-Analyse
+    if bets:
+        scenarios = scenario_pnl(bets)
+        lines.append("📊 Szenarien (erw. P&L):")
+        lines.append(f"   60% Trefferquote → {scenarios.get(60, 0):+.2f}€")
+        lines.append(f"   70% Trefferquote → {scenarios.get(70, 0):+.2f}€")
+        lines.append(f"   80% Trefferquote → {scenarios.get(80, 0):+.2f}€")
+        lines.append("━━━━━━━━━━━━━━━━━━━━━")
 
     return "\n".join(lines)

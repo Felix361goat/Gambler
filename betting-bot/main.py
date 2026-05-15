@@ -204,17 +204,22 @@ def cmd_predict(config: dict):
                 "btts": prediction.get("btts_prob", 0),
             }
 
+            safety_margin = config.get("betting", {}).get("probability_safety_margin", 0.10)
+            min_odds = config.get("betting", {}).get("min_odds", 1.50)
+
             for market, our_prob in markets.items():
                 best_odds, bookmaker = find_best_odds(match_id, market, odds_data)
-                if best_odds <= 1.0:
+                if best_odds < min_odds:
                     continue
 
-                ev = calculate_ev(our_prob, best_odds)
+                # Apply safety margin: 10% haircut before EV + Kelly
+                our_prob_adj = our_prob * (1.0 - safety_margin)
+                ev = calculate_ev(our_prob_adj, best_odds)
                 if ev <= 0:
                     continue
 
-                stake = kelly_stake(our_prob, best_odds, bankroll, config)
-                kelly_frac = (best_odds - 1) * our_prob - (1 - our_prob)
+                stake = kelly_stake(our_prob_adj, best_odds, bankroll, config)
+                kelly_frac = (best_odds - 1) * our_prob_adj - (1 - our_prob_adj)
                 kelly_frac = kelly_frac / (best_odds - 1) if best_odds > 1 else 0
 
                 bet_dict = {

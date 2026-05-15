@@ -133,10 +133,14 @@ class TestFilter:
     def test_ev_threshold_filters(self):
         from selection.filter import select_daily_bets
         predictions = [
+            # Passes: ev=5%, odds=2.10, conservative EV=0.495*2.10-1=3.95% >= 3%
             {"home_team": "Arsenal", "away_team": "Chelsea", "league": "premier_league",
-             "market": "over_2.5", "ev_score": 0.05},
+             "market": "over_2.5", "ev_score": 0.05,
+             "our_probability": 0.55, "bookmaker_odds": 2.10},
+            # Fails: ev=2% < 3% threshold
             {"home_team": "TeamA", "away_team": "TeamB", "league": "la_liga",
-             "market": "over_2.5", "ev_score": 0.02},
+             "market": "over_2.5", "ev_score": 0.02,
+             "our_probability": 0.51, "bookmaker_odds": 2.00},
         ]
         selected = select_daily_bets(predictions, self._config(), 0)
         assert len(selected) == 1
@@ -148,7 +152,8 @@ class TestFilter:
         cfg["favorite_clubs"] = []
         predictions = [
             {"home_team": f"H{i}", "away_team": f"A{i}", "league": "bundesliga",
-             "market": "over_2.5", "ev_score": 0.03 + i * 0.01}
+             "market": "over_2.5", "ev_score": 0.04 + i * 0.01,
+             "our_probability": 0.60, "bookmaker_odds": 2.10}
             for i in range(15)
         ]
         selected = select_daily_bets(predictions, cfg, 0)
@@ -162,12 +167,15 @@ class TestFilter:
     def test_favorite_club_80pct_threshold(self):
         from selection.filter import select_daily_bets
         predictions = [
-            # Arsenal at 2.5% EV — normally below 3%, but 80% of 3% = 2.4%, so this passes
+            # Arsenal at 2.5% EV — fav threshold = 3%*80% = 2.4%, passes
+            # conservative EV = 0.54*2.10-1 = 13.4% >> 2.4% ✓
             {"home_team": "Arsenal", "away_team": "Chelsea", "league": "premier_league",
-             "market": "1x2_home", "ev_score": 0.025},
-            # Arsenal at 2.3% EV — below 80% threshold, should not pass
+             "market": "1x2_home", "ev_score": 0.025,
+             "our_probability": 0.60, "bookmaker_odds": 2.10},
+            # Arsenal at 2.3% EV — below 2.4% threshold, fails raw ev check
             {"home_team": "Arsenal", "away_team": "Liverpool", "league": "premier_league",
-             "market": "over_2.5", "ev_score": 0.023},
+             "market": "over_2.5", "ev_score": 0.023,
+             "our_probability": 0.60, "bookmaker_odds": 2.10},
         ]
         selected = select_daily_bets(predictions, self._config(), 0)
         evs = [b["ev_score"] for b in selected]
