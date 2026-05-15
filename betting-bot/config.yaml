@@ -1,0 +1,74 @@
+betting:
+  max_daily_bets: 10
+  min_ev_threshold: 0.03
+  watchable_ev_threshold: 0.024
+  min_paper_bets_before_live: 200
+  bankroll_paper: 1000.0
+  kelly_fraction: 0.25
+  max_stake_percent: 0.05
+
+leagues:
+  priority:
+    - premier_league
+    - bundesliga
+    - la_liga
+    - serie_a
+    - ligue_1
+    - austrian_bundesliga
+    - nba
+  watchable_min_per_week: 1
+  watchable_max_per_week: 3
+  watchable_preferred:
+    - premier_league
+    - bundesliga
+    - nba
+  watchable_kickoff_window:
+    earliest_hour: 17
+    latest_hour: 23
+
+favorite_clubs:
+  - "Arsenal"
+  - "Bristol Rovers"
+  ev_override_factor: 0.80
+
+data_sources:
+  football_api_key: ${FOOTBALL_API_KEY}
+  odds_api_key: ${ODDS_API_KEY}
+  weather_api_key: ${WEATHER_API_KEY}
+  request_delay_seconds: 2
+  max_retries: 3
+  timeout_seconds: 10
+
+telegram:
+  bot_token: ${TELEGRAM_BOT_TOKEN}
+  chat_id: ${TELEGRAM_CHAT_ID}
+  morning_briefing_hour: 8
+  morning_briefing_minute: 30
+  evening_summary_hour: 23
+  evening_summary_minute: 0
+  weekly_report_day: "sunday"
+  weekly_report_hour: 20
+
+google_sheets:
+  credentials_file: "google_credentials.json"
+  spreadsheet_id: ${GOOGLE_SHEET_ID}
+  tabs:
+    bets: "Bets"
+    analytics: "Analytics"
+    model_health: "Model Health"
+
+model:
+  retrain_day: "sunday"
+  retrain_hour: 3
+  min_samples_to_train: 50
+  form_weights:
+    last_5_games: 0.35
+    last_10_to_20_games: 0.25
+    full_current_season: 0.15
+    last_2_to_3_seasons: 0.15
+    head_to_head: 0.10
+  ensemble_weights:
+    poisson: 0.35
+    xgboost: 0.40
+    elo: 0.25
+  min_models_agreeing: 2

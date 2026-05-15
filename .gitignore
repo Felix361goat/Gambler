@@ -1,0 +1,14 @@
+betting-bot/data/__pycache__/
+betting-bot/features/__pycache__/
+betting-bot/models/__pycache__/
+betting-bot/notifications/__pycache__/
+betting-bot/selection/__pycache__/
+betting-bot/tracking/__pycache__/
+betting-bot/tests/__pycache__/
+betting-bot/scheduler/__pycache__/
+betting-bot/data/sources/__pycache__/
+betting-bot/data/*.db
+betting-bot/data/*.log
+betting-bot/*.pyc
+.env
+google_credentials.json
