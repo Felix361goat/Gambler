@@ -12,3 +12,4 @@ betting-bot/data/*.log
 betting-bot/*.pyc
 .env
 google_credentials.json
+betting-bot/tests/__pycache__/
