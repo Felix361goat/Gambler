@@ -9,11 +9,29 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-# Sports supported by the-odds-api scores endpoint
+# Sports supported by the-odds-api scores endpoint.
+# Keys match the 'sport' field stored on bets; values are the-odds-api sport keys.
 ODDS_API_SPORTS = {
-    "tennis":     "tennis_atp",
-    "hockey":     "icehockey_nhl",
-    "basketball": "basketball_nba",
+    # Tennis
+    "tennis_wta":       "tennis_wta",
+    "tennis_itf_women": "tennis_wta",        # best available approximation
+    "tennis_itf_men":   "tennis_atp",        # only approximation available
+    # Legacy generic key — kept for backward compatibility
+    "tennis":           "tennis_wta",
+    # Hockey
+    "hockey_ahl":       "icehockey_ahl",
+    "hockey_echl":      "icehockey_ahl",     # ECHL not covered; AHL as fallback
+    # Legacy generic key
+    "hockey":           "icehockey_ahl",
+    # Basketball
+    "basketball_baltic":   "basketball_euroleague",
+    "basketball_romanian": "basketball_euroleague",
+    # Legacy generic key
+    "basketball":          "basketball_euroleague",
+    # Soccer
+    "soccer_england_tier4": "soccer_england",
+    "soccer_scandinavia":   "soccer_sweden",   # primary Scandinavian fallback
+    "soccer_poland":        "soccer_poland",
 }
 
 # Mapping from bet market to how we label the actual result
@@ -159,6 +177,54 @@ class ResultsSource:
         return resp.json()
 
     # ------------------------------------------------------------------
+    # Closing-line value helpers
+    # ------------------------------------------------------------------
+
+    def _get_closing_odds(self, db, match_id: str, market: str) -> float:
+        """Return the most recent pre-match closing odds for a given match/market.
+
+        Queries the odds_snapshots table for the last snapshot captured before
+        the match started.  We use MAX(odds_home) as a proxy for the best
+        available closing price; for over/under markets we use odds_over /
+        odds_under instead.
+
+        Returns 0.0 if no snapshot exists (caller keeps clv_score = 0.0).
+        """
+        if db is None:
+            return 0.0
+        try:
+            if market in ("over_2.5",):
+                col = "odds_over"
+            elif market in ("under_2.5",):
+                col = "odds_under"
+            elif market in ("1x2_away",):
+                col = "odds_away"
+            elif market in ("1x2_draw",):
+                col = "odds_draw"
+            else:
+                col = "odds_home"
+
+            with db._get_conn() as conn:
+                row = conn.execute(
+                    f"""
+                    SELECT MAX({col}) FROM odds_snapshots
+                    WHERE match_id = ? AND market = ?
+                    ORDER BY captured_at DESC LIMIT 1
+                    """,
+                    (str(match_id), market),
+                ).fetchone()
+            val = row[0] if row else None
+            if val is None:
+                logger.debug(
+                    f"No closing odds found for match_id={match_id!r} market={market!r}"
+                )
+                return 0.0
+            return float(val)
+        except Exception as exc:
+            logger.warning(f"_get_closing_odds failed for {match_id}/{market}: {exc}")
+            return 0.0
+
+    # ------------------------------------------------------------------
     # Football result lookup
     # ------------------------------------------------------------------
 
@@ -179,12 +245,14 @@ class ResultsSource:
             logger.warning(f"Error fetching football match {match_id}: {exc}")
         return None
 
-    def _resolve_football_bet(self, bet: Dict) -> Optional[Dict]:
+    def _resolve_football_bet(self, bet: Dict, db=None) -> Optional[Dict]:
         """Try to resolve a single football bet.
 
         Returns a result_dict ready for db.insert_result, or None if the
         match is not yet finished / could not be found.
         """
+        from selection.ev_calculator import calculate_clv
+
         match_id = bet.get("match_id")
         if not match_id:
             logger.debug(f"Bet {bet['id']} has no match_id — skipping")
@@ -223,13 +291,20 @@ class ResultsSource:
         odds = bet.get("bookmaker_odds") or 0.0
         pnl = stake * (odds - 1) if won else -stake
 
+        closing_odds = self._get_closing_odds(db, match_id, market)
+        if closing_odds <= 0.0:
+            logger.warning(
+                f"Bet {bet['id']}: no closing odds for match {match_id}/{market} — CLV set to 0.0"
+            )
+        clv = calculate_clv(odds, closing_odds) if closing_odds > 0.0 else 0.0
+
         return {
             "bet_id": bet["id"],
             "actual_result": actual_result,
             "won": won,
             "pnl_simulated": round(pnl, 4),
-            "closing_line_odds": 0.0,
-            "clv_score": 0.0,
+            "closing_line_odds": closing_odds,
+            "clv_score": clv,
         }
 
     # ------------------------------------------------------------------
@@ -267,18 +342,19 @@ class ResultsSource:
                 continue
             names = {t.get("name", "").lower() for t in teams}
             if any(home in n or n in home for n in names) and \
-               any(away in n or n in home for n in names):
+               any(away in n or n in away for n in names):
                 return game
 
         return None
 
-    def _resolve_non_football_bet(self, bet: Dict, sport_key: str, scores: List[Dict]) -> Optional[Dict]:
+    def _resolve_non_football_bet(self, bet: Dict, sport_key: str, scores: List[Dict], db=None) -> Optional[Dict]:
         """Try to resolve a non-football bet given pre-fetched score list.
 
-        Only 1x2 markets are supported for non-football; over/under and btts
-        are left pending (result logged as warning) since those markets require
-        sport-specific score parsing beyond a simple winner lookup.
+        Supports 1x2 and over/under markets for non-football sports.
+        btts is left pending as it requires sport-specific score parsing.
         """
+        from selection.ev_calculator import calculate_clv
+
         market = bet.get("market", "")
 
         game = self._match_bet_to_score(bet, scores)
@@ -320,7 +396,7 @@ class ResultsSource:
             )
             return None
 
-        if market in ("over_2.5", "under_2.5", "btts"):
+        if market == "btts":
             logger.warning(
                 f"Bet {bet['id']}: market {market!r} is not reliably supported "
                 "for non-football sports — leaving pending"
@@ -337,13 +413,21 @@ class ResultsSource:
         odds = bet.get("bookmaker_odds") or 0.0
         pnl = stake * (odds - 1) if won else -stake
 
+        match_id = bet.get("match_id", "")
+        closing_odds = self._get_closing_odds(db, match_id, market)
+        if closing_odds <= 0.0:
+            logger.warning(
+                f"Bet {bet['id']}: no closing odds for match {match_id}/{market} — CLV set to 0.0"
+            )
+        clv = calculate_clv(odds, closing_odds) if closing_odds > 0.0 else 0.0
+
         return {
             "bet_id": bet["id"],
             "actual_result": actual_result,
             "won": won,
             "pnl_simulated": round(pnl, 4),
-            "closing_line_odds": 0.0,
-            "clv_score": 0.0,
+            "closing_line_odds": closing_odds,
+            "clv_score": clv,
         }
 
     # ------------------------------------------------------------------
@@ -406,7 +490,7 @@ class ResultsSource:
         # --- Football bets ---
         for bet in football_bets:
             try:
-                result = self._resolve_football_bet(bet)
+                result = self._resolve_football_bet(bet, db=db)
             except Exception as exc:
                 logger.error(f"Unexpected error resolving football bet {bet['id']}: {exc}")
                 skipped += 1
@@ -438,7 +522,7 @@ class ResultsSource:
 
             for bet in sport_bets:
                 try:
-                    result = self._resolve_non_football_bet(bet, sport_key, scores)
+                    result = self._resolve_non_football_bet(bet, sport_key, scores, db=db)
                 except Exception as exc:
                     logger.error(
                         f"Unexpected error resolving {sport} bet {bet['id']}: {exc}"

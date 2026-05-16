@@ -227,7 +227,11 @@ def cmd_predict(config: dict):
 
                 # Apply safety margin: 10% haircut before EV + Kelly
                 our_prob_adj = our_prob * (1.0 - safety_margin)
-                ev = calculate_ev(our_prob_adj, best_odds)
+                if bookmaker.lower() == "betfair":
+                    from selection.ev_calculator import calculate_ev_betfair
+                    ev = calculate_ev_betfair(our_prob_adj, best_odds)
+                else:
+                    ev = calculate_ev(our_prob_adj, best_odds)
                 if ev <= 0:
                     continue
 
@@ -268,6 +272,16 @@ def cmd_predict(config: dict):
 
     logger.info(f"Generated {len(selected)} bets from {len(predictions)} candidates")
     print(f"✅ {len(selected)} bets generated (from {len(predictions)} candidates with positive EV)")
+
+    if len(selected) == 0:
+        logger.warning("0 bets generated today — sending Telegram alert")
+        try:
+            from notifications.telegram_bot import TelegramBotHandler
+            bot = TelegramBotHandler(config, db)
+            bot.send_message_sync("⚠️ 0 Bets heute generiert — prüfe Daten & Modell")
+        except Exception as _tg_err:
+            logger.error(f"Failed to send zero-bets alert: {_tg_err}")
+
     return selected
 
 
@@ -578,6 +592,77 @@ def cmd_healthcheck(config: dict) -> dict:
     return report
 
 
+def cmd_goalie_check(config: dict):
+    """Check starting goalie status 90 min before hockey games.
+
+    Fetches today's placed hockey bets and compares the current confirmed
+    starting goalie against the one recorded at bet time.  Sends a Telegram
+    alert if a goalie change is detected so the user can decide to void.
+    """
+    from tracking.database import DatabaseHandler
+    from notifications.telegram_bot import TelegramBotHandler
+
+    db = DatabaseHandler()
+
+    # Fetch today's hockey bets that are still placed/pending
+    hockey_bets = []
+    try:
+        with db._get_conn() as conn:
+            rows = conn.execute(
+                """SELECT * FROM bets
+                   WHERE match_date = date('now')
+                   AND status IN ('placed', 'pending')
+                   AND (LOWER(league) LIKE '%hockey%'
+                        OR LOWER(league) LIKE '%ahl%'
+                        OR LOWER(league) LIKE '%echl%')""",
+            ).fetchall()
+            hockey_bets = [dict(r) for r in rows]
+    except Exception as exc:
+        logger.error(f"goalie_check: DB query failed: {exc}")
+        return
+
+    if not hockey_bets:
+        logger.info("goalie_check: no hockey bets today")
+        print("No hockey bets today — goalie check skipped")
+        return
+
+    from data.sources.hockey_source import HockeySource
+    source = HockeySource(config)
+    alerts = []
+
+    for bet in hockey_bets:
+        match_id = bet.get("match_id", "")
+        if not match_id:
+            continue
+        try:
+            status = source.get_goalie_status(match_id)
+            if not status:
+                logger.debug(f"goalie_check: no status for match {match_id}")
+                continue
+            current = status.get("home_goalie") or status.get("starting_goalie", "")
+            recorded = bet.get("notes", "")  # goalie stored in notes if available
+            if current and recorded and current.lower() != recorded.lower():
+                msg = (
+                    f"🏒 Goalie-Wechsel: {bet['home_team']} vs {bet['away_team']}\n"
+                    f"Ursprünglich: {recorded}\nJetzt: {current}\nPrüfe Bet {bet['id']}!"
+                )
+                alerts.append(msg)
+                logger.warning(f"Goalie change detected: {msg}")
+        except Exception as exc:
+            logger.warning(f"goalie_check: could not fetch status for {match_id}: {exc}")
+
+    if alerts:
+        try:
+            bot = TelegramBotHandler(config, db)
+            for msg in alerts:
+                bot.send_message_sync(msg)
+        except Exception as exc:
+            logger.error(f"goalie_check: Telegram send failed: {exc}")
+        print(f"⚠️  {len(alerts)} goalie change alert(s) sent")
+    else:
+        print(f"✅ Goalie check OK — {len(hockey_bets)} hockey bet(s) checked, no changes")
+
+
 def cmd_test():
     """Run all tests."""
     import subprocess
@@ -628,6 +713,7 @@ def main():
     parser.add_argument("--weekly_report", action="store_true")
     parser.add_argument("--results", action="store_true")
     parser.add_argument("--healthcheck", action="store_true")
+    parser.add_argument("--goalie_check", action="store_true")
     parser.add_argument("--test", action="store_true")
     parser.add_argument("--paper_status", action="store_true")
     args = parser.parse_args()
@@ -658,6 +744,8 @@ def main():
         cmd_results(config)
     elif args.healthcheck:
         cmd_healthcheck(config)
+    elif args.goalie_check:
+        cmd_goalie_check(config)
     elif args.paper_status:
         cmd_paper_status(config)
     else:

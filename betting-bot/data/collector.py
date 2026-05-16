@@ -103,6 +103,8 @@ class DataCollector:
 
     def __init__(
         self,
+        config: dict = None,
+        db=None,
         football_source: Optional[FootballAPISource] = None,
         odds_source: Optional[OddsAPISource] = None,
         understat_source: Optional[UnderstatSource] = None,
@@ -115,6 +117,8 @@ class DataCollector:
         tennis_source: Optional[TennisSource] = None,
     ):
         """Allow dependency injection for testing; otherwise create defaults."""
+        self.config              = config or {}
+        self.db                  = db
         self.football            = football_source            or FootballAPISource()
         self.odds                = odds_source                or OddsAPISource()
         self.understat           = understat_source           or UnderstatSource()
@@ -122,9 +126,9 @@ class DataCollector:
         self.weather             = weather_source             or WeatherSource()
         self.nba                 = nba_source                 or NBASource()
         self.news                = news_source                or NewsRSSSource()
-        self.hockey              = hockey_source              or HockeySource()
-        self.basketball_lower    = basketball_lower_source    or BasketballLowerSource()
-        self.tennis              = tennis_source              or TennisSource()
+        self.hockey              = hockey_source              or HockeySource(self.config or {})
+        self.basketball_lower    = basketball_lower_source    or BasketballLowerSource(self.config or {})
+        self.tennis              = tennis_source              or TennisSource(self.config or {})
 
     # ------------------------------------------------------------------
     # Individual collection helpers

@@ -203,48 +203,102 @@ class TennisSource(BaseSource):
     # Primary domain methods
     # ------------------------------------------------------------------
 
-    def fetch_upcoming_matches(self, days_ahead: int = 3) -> List[Dict]:
-        """Return upcoming tennis matches within the next *days_ahead* days.
+    # Tennis sport keys available on the-odds-api for upcoming fixtures
+    _ODDS_API_TENNIS_SPORT_KEYS = ["tennis_wta"]
 
-        Because Sackmann CSVs record *results* (not fixtures), this method
-        returns matches that have a tourney_date falling between today and
-        today + days_ahead.  In practice the CSV is updated daily for
-        ongoing tournaments, so "future" rows represent scheduled matches
-        that have not yet been played.
+    def fetch_upcoming_matches(self, days_ahead: int = 3) -> List[Dict]:
+        """Return upcoming WTA tennis matches within the next *days_ahead* days.
+
+        Uses the-odds-api /v4/sports/{sport_key}/events endpoint to obtain
+        real future fixtures.  Sackmann CSVs only contain completed results
+        and cannot reliably supply upcoming fixtures.
 
         Args:
-            days_ahead: How many calendar days into the future to look.
+            days_ahead: How many calendar days into the future to include.
 
         Returns:
             List of dicts with keys:
                 match_id, date, sport, home_team (player1),
-                away_team (player2), league (tourney_name), surface,
-                player1_ranking, player2_ranking
+                away_team (player2), league (sport_key), surface
+            surface is always None — the events endpoint does not supply it.
         """
-        raw = self.fetch()
-        if not self.validate(raw):
-            logger.warning("TennisSource.fetch_upcoming_matches: no CSV data available")
+        if not self.api_key:
+            logger.warning(
+                "TennisSource.fetch_upcoming_matches: no ODDS_API_KEY configured — "
+                "cannot fetch upcoming fixtures from the-odds-api"
+            )
             return []
 
-        combined = self.normalize(raw)
-        if combined.empty:
-            return []
+        now      = datetime.now(timezone.utc)
+        cutoff   = now + timedelta(days=days_ahead)
+        results: List[Dict] = []
 
-        today     = date.today()
-        end_date  = today + timedelta(days=days_ahead)
+        for sport_key in self._ODDS_API_TENNIS_SPORT_KEYS:
+            url = f"{_ODDS_API_BASE}/sports/{sport_key}/events"
+            try:
+                resp = requests.get(
+                    url,
+                    params={"apiKey": self.api_key, "dateFormat": "iso"},
+                    timeout=self.timeout,
+                )
+                resp.raise_for_status()
+                events = resp.json()
+            except Exception as exc:
+                logger.error(
+                    f"TennisSource.fetch_upcoming_matches: API call failed for "
+                    f"{sport_key}: {exc}"
+                )
+                continue
 
-        # Filter to the look-ahead window
-        combined["_date_parsed"] = pd.to_datetime(combined["date"], errors="coerce").dt.date
-        mask = (
-            (combined["_date_parsed"] >= today) &
-            (combined["_date_parsed"] <= end_date)
+            for event in events:
+                commence_raw = event.get("commence_time", "")
+                try:
+                    commence_dt = datetime.fromisoformat(
+                        commence_raw.replace("Z", "+00:00")
+                    )
+                except Exception:
+                    logger.debug(
+                        f"TennisSource: could not parse commence_time "
+                        f"'{commence_raw}' for event {event.get('id')}"
+                    )
+                    continue
+
+                # Keep only events within the look-ahead window
+                if not (now <= commence_dt <= cutoff):
+                    continue
+
+                results.append({
+                    "match_id":   event.get("id", ""),
+                    "date":       commence_dt.strftime("%Y-%m-%d"),
+                    "sport":      "tennis",
+                    "home_team":  event.get("home_team", ""),
+                    "away_team":  event.get("away_team", ""),
+                    "league":     event.get("sport_key", sport_key),
+                    "surface":    None,  # events endpoint does not supply surface
+                })
+
+        logger.info(
+            f"TennisSource: {len(results)} upcoming WTA matches in next {days_ahead} days"
         )
-        upcoming = combined[mask].copy()
-        upcoming = upcoming.drop(columns=["_date_parsed"], errors="ignore")
+        return results
 
-        records = upcoming.to_dict(orient="records")
-        logger.info(f"TennisSource: {len(records)} upcoming matches in next {days_ahead} days")
-        return records
+    def fetch_itf_upcoming(self) -> List[Dict]:
+        """Return upcoming ITF M15/F10 fixtures.
+
+        ITF M15 and F10 challenger events have no free coverage on
+        the-odds-api.  This method returns an empty list and logs the
+        limitation explicitly so callers are never silently left without
+        data due to a missing code path.
+
+        Returns:
+            Empty list — ITF coverage is unavailable via free tier APIs.
+        """
+        logger.info(
+            "TennisSource.fetch_itf_upcoming: ITF M15/F10 challenger events have no "
+            "free odds-API coverage — returning empty list.  To obtain ITF fixtures "
+            "a paid data provider (e.g. SportRadar, API-Tennis) is required."
+        )
+        return []
 
     def fetch_odds(self, player1: str, player2: str) -> Optional[Dict]:
         """Fetch h2h odds for a match from The-Odds-API.

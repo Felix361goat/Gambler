@@ -16,6 +16,7 @@ CRON_JOBS = [
     ("0 20 * * 0",   "--weekly_report", "Send weekly report"),
     ("0 10 * * *",   "--results",       "Settle yesterday's results"),
     ("0 9 * * *",    "--healthcheck",   "Daily health check"),
+    ("30 18 * * *",  "--goalie_check",  "Check goalie status pre-game"),
 ]
 
 

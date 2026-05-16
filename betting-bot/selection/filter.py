@@ -108,6 +108,15 @@ def select_daily_bets(all_predictions: list, config: dict, week_watchable_count:
             pred["data_completeness"] = completeness
             pred["confidence_tier"] = calculate_confidence_tier(completeness)
 
+            # Hard gate: too much imputed data — skip
+            min_completeness = betting_cfg.get("min_data_completeness", 0.40)
+            if completeness < min_completeness:
+                logger.debug(
+                    f"Skipping {pred.get('home_team')} vs {pred.get('away_team')} "
+                    f"— data completeness {completeness:.0%} < {min_completeness:.0%}"
+                )
+                continue
+
             pred["is_favorite_club"] = is_fav
             qualified.append(pred)
 

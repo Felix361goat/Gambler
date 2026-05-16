@@ -43,6 +43,12 @@ class EloModel:
         self.ratings: dict[str, float] = {}
         self.DEFAULT_RATING = 1500.0
 
+        # Surface-specific ELO ratings for tennis.
+        # Keyed as {player_name: {surface: rating}}.
+        # Player performance varies dramatically across clay / hard / grass,
+        # so a single shared rating would produce biased predictions.
+        self.tennis_ratings: dict[str, dict[str, float]] = {}
+
         # Load sport-specific parameters from config if provided
         cfg_k      = (config or {}).get("model", {}).get("elo_k_factors", {})
         cfg_ha     = (config or {}).get("model", {}).get("elo_home_advantage", {})
@@ -64,6 +70,70 @@ class EloModel:
 
     def get_rating(self, team: str) -> float:
         return self.ratings.get(team, self.DEFAULT_RATING)
+
+    # ------------------------------------------------------------------
+    # Tennis surface-specific ratings
+    # ------------------------------------------------------------------
+
+    _DEFAULT_SURFACE = "hard"
+
+    def get_tennis_rating(self, player: str, surface: str) -> float:
+        """Return the surface-specific ELO rating for *player*.
+
+        Args:
+            player:  Player name (must match the names used during fit).
+            surface: Court surface — typically 'clay', 'hard', or 'grass'.
+                     Case-insensitive; unknown surfaces fall back to the
+                     overall default rating of 1500.
+
+        Returns:
+            Surface-specific ELO rating, defaulting to 1500 if the player
+            or surface has not yet been seen.
+        """
+        surface_key = (surface or self._DEFAULT_SURFACE).lower().strip()
+        return self.tennis_ratings.get(player, {}).get(surface_key, self.DEFAULT_RATING)
+
+    def update_tennis_rating(
+        self,
+        player1: str,
+        player2: str,
+        surface: str,
+        player1_won: bool,
+        k: float = 48,
+    ) -> None:
+        """Update surface-specific ELO ratings after a completed tennis match.
+
+        Only the ratings for *surface* are modified; ratings on other
+        surfaces remain unchanged.
+
+        Args:
+            player1:     Name of the first player.
+            player2:     Name of the second player.
+            surface:     Court surface on which the match was played.
+            player1_won: True if player1 won, False if player2 won.
+            k:           K-factor (default 48 — matches DEFAULT_K_FACTORS["tennis"]).
+        """
+        surface_key = (surface or self._DEFAULT_SURFACE).lower().strip()
+
+        r1 = self.get_tennis_rating(player1, surface_key)
+        r2 = self.get_tennis_rating(player2, surface_key)
+
+        e1 = self._expected_score(r1, r2)
+        e2 = 1.0 - e1
+
+        s1 = 1.0 if player1_won else 0.0
+        s2 = 1.0 - s1
+
+        new_r1 = r1 + k * (s1 - e1)
+        new_r2 = r2 + k * (s2 - e2)
+
+        if player1 not in self.tennis_ratings:
+            self.tennis_ratings[player1] = {}
+        if player2 not in self.tennis_ratings:
+            self.tennis_ratings[player2] = {}
+
+        self.tennis_ratings[player1][surface_key] = new_r1
+        self.tennis_ratings[player2][surface_key] = new_r2
 
     def _expected_score(self, rating_a: float, rating_b: float) -> float:
         return 1.0 / (1.0 + 10 ** ((rating_b - rating_a) / 400.0))
@@ -109,18 +179,42 @@ class EloModel:
     # Prediction
     # ------------------------------------------------------------------
 
-    def predict_match(self, home_team: str, away_team: str, sport: str = "soccer") -> dict:
+    def predict_match(
+        self,
+        home_team: str,
+        away_team: str,
+        sport: str = "soccer",
+        surface: Optional[str] = None,
+    ) -> dict:
         """Return 1x2 win probabilities for the given match.
+
+        For tennis, surface-specific ELO ratings are used when *surface* is
+        provided (or defaults to 'hard').  All other sports use the generic
+        shared ratings dict.
 
         Tennis has no draw (matches are played to a winner), so draw_prob is
         forced to 0 for tennis and the probability is split between the two
         players only.
+
+        Args:
+            home_team: Home team name, or player1 for tennis.
+            away_team: Away team name, or player2 for tennis.
+            sport:     Sport key (e.g. 'soccer', 'tennis', 'basketball').
+            surface:   Court surface — tennis only.  Ignored for other sports.
         """
         ha = self._ha(sport)
-        r_home = self.get_rating(home_team) + ha
-        r_away = self.get_rating(away_team)
 
-        e_home = self._expected_score(r_home, r_away)
+        if sport == "tennis":
+            r_home = self.get_tennis_rating(home_team, surface or self._DEFAULT_SURFACE)
+            r_away = self.get_tennis_rating(away_team, surface or self._DEFAULT_SURFACE)
+            # Tennis is played at neutral venues (no meaningful home advantage)
+            r_home_eff = r_home + ha  # ha == 0 for tennis per DEFAULT_HOME_ADVANTAGE
+        else:
+            r_home = self.get_rating(home_team)
+            r_away = self.get_rating(away_team)
+            r_home_eff = r_home + ha
+
+        e_home = self._expected_score(r_home_eff, r_away)
 
         if sport == "tennis":
             # No draws in tennis — straight win/loss split
