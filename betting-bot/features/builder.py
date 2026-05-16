@@ -35,6 +35,16 @@ class FeatureBuilder:
         available_features = []
         imputed_features = []
 
+        # Sport-specific routing — delegate to specialised builders
+        sport = match.get("sport", "soccer")
+        if sport == "tennis":
+            return self._build_tennis_features(match, historical_matches)
+        elif sport == "hockey":
+            return self._build_hockey_features(match, historical_matches)
+        elif sport == "basketball":
+            return self._build_basketball_features(match, historical_matches)
+        # else: fall through to soccer logic below
+
         features = {}
 
         # Form features
@@ -153,3 +163,83 @@ class FeatureBuilder:
         )
 
         return features
+
+    # ------------------------------------------------------------------
+    # Sport-specific feature builders
+    # ------------------------------------------------------------------
+
+    def _build_tennis_features(self, match: dict, matches_df) -> dict:
+        """
+        Build features for tennis matches.
+        Uses surface-aware ELO and H2H win rates.
+        NOTE: Poisson model is NOT called for tennis (set-based scoring).
+        'home_team' = player, 'away_team' = opponent in tennis context.
+        """
+        try:
+            from features.tennis_features import calculate_tennis_features
+            player = match.get("home_team", "")
+            opponent = match.get("away_team", "")
+            surface = match.get("surface", "hard")
+            features = calculate_tennis_features(player, opponent, surface, matches_df, self.config)
+            features["sport"] = "tennis"
+            features["surface"] = surface
+            return features
+        except Exception as e:
+            logger.warning(f"Tennis features failed: {e}")
+            return {"sport": "tennis", "surface": match.get("surface", "hard")}
+
+    def _build_hockey_features(self, match: dict, matches_df) -> dict:
+        """
+        Build features for hockey matches (AHL/ECHL/European minor leagues).
+        Key signals: back-to-back games, travel fatigue, days rest.
+        Goalie confirmation is handled separately via late-news hook.
+        """
+        try:
+            from data.sources.hockey_source import HockeySource
+            source = HockeySource(self.config)
+            home = match.get("home_team", "")
+            away = match.get("away_team", "")
+            game_date = match.get("date", "")
+            home_b2b = source.get_back_to_back_flag(home, game_date, matches_df)
+            away_b2b = source.get_back_to_back_flag(away, game_date, matches_df)
+            features = {
+                "sport": "hockey",
+                "home_back_to_back": home_b2b["back_to_back"],
+                "away_back_to_back": away_b2b["back_to_back"],
+                "home_days_rest": home_b2b["days_since_last_game"],
+                "away_days_rest": away_b2b["days_since_last_game"],
+                "home_b2b_penalty": home_b2b["b2b_penalty"],
+                "away_b2b_penalty": away_b2b["b2b_penalty"],
+            }
+            return features
+        except Exception as e:
+            logger.warning(f"Hockey features failed: {e}")
+            return {"sport": "hockey"}
+
+    def _build_basketball_features(self, match: dict, matches_df) -> dict:
+        """
+        Build features for lower-tier basketball (Baltic/Romanian/European minor).
+        Key signals: player impact score, key player availability, roster size.
+        NOTE: Poisson model is NOT called for basketball (point-based scoring
+        doesn't fit a low-score Poisson distribution).
+        """
+        try:
+            from data.sources.basketball_lower import BasketballLowerSource
+            source = BasketballLowerSource(self.config)
+            home = match.get("home_team", "")
+            away = match.get("away_team", "")
+            injury_data = match.get("injury_data", [])
+            roster = match.get("roster", {})
+            home_impact = source.calculate_player_impact(home, injury_data, roster)
+            away_impact = source.calculate_player_impact(away, injury_data, roster)
+            features = {
+                "sport": "basketball",
+                "home_player_impact_score": home_impact["player_impact_score"],
+                "away_player_impact_score": away_impact["player_impact_score"],
+                "home_key_player_missing": home_impact["key_player_missing"],
+                "away_key_player_missing": away_impact["key_player_missing"],
+            }
+            return features
+        except Exception as e:
+            logger.warning(f"Basketball features failed: {e}")
+            return {"sport": "basketball"}

@@ -10,13 +10,30 @@ betting:
   min_odds: 1.50                    # Unter 1.50 braucht man >67% Win Rate — zu riskant
 
 leagues:
+  # Primary markets after low-coverage-market migration.
+  # Premier League / Bundesliga / NBA are REMOVED as primary targets —
+  # they are now only eligible as watchable bets (too efficient for edge).
   priority:
+    # Tennis
+    - tennis_wta_itf           # WTA/ITF rankings 50-200, surface-specific
+    - tennis_itf_men_m15       # ITF Men M15
+    - tennis_itf_men_m25       # ITF Men M25
+    # Ice Hockey minor leagues
+    - hockey_ahl               # American Hockey League
+    - hockey_echl              # ECHL
+    - hockey_european_minor    # European minor (e.g. DEL2, Liiga, Allsvenskan)
+    # Basketball lower tiers
+    - basketball_baltic        # Baltic Basketball League
+    - basketball_romania       # Romanian Basketball League
+    - basketball_european_lower  # Other lower European basketball
+    # Football lower tiers
+    - soccer_england_tier4     # English National League (tier 4)
+    - soccer_england_tier5     # English National League North/South (tier 5)
+    - soccer_scandinavia       # Allsvenskan, Eliteserien, Superliga lower tiers
+    - soccer_poland            # Polish lower divisions (I liga and below)
+    # Legacy high-tier (watchable only — kept for watchable-bet eligibility)
     - premier_league
     - bundesliga
-    - la_liga
-    - serie_a
-    - ligue_1
-    - austrian_bundesliga
     - nba
   watchable_min_per_week: 1
   watchable_max_per_week: 3
@@ -27,6 +44,21 @@ leagues:
   watchable_kickoff_window:
     earliest_hour: 17
     latest_hour: 23
+  # Minimum historical samples required per sport before a bet is eligible.
+  # Lower-coverage markets have thin data — enforce stricter floor.
+  min_samples_per_sport:
+    soccer: 50
+    soccer_lower: 80       # 4th/5th tier: fewer sharp bettors, more noise
+    tennis: 30             # Per-player surface sample
+    hockey: 40
+    basketball: 40
+  # Match-fixing risk — leagues flagged here get an automatic confidence penalty.
+  match_fixing_risk_leagues:
+    - soccer_england_tier5
+    - soccer_poland
+    - basketball_romania
+    - basketball_european_lower
+  match_fixing_confidence_penalty: 10  # Subtract from confidence_score
 
 favorite_clubs:
   - "Arsenal"
@@ -37,6 +69,17 @@ data_sources:
   football_api_key: ${FOOTBALL_API_KEY}
   odds_api_key: ${ODDS_API_KEY}
   weather_api_key: ${WEATHER_API_KEY}
+  # New low-coverage market APIs
+  tennis_rapidapi_key: ${TENNIS_RAPIDAPI_KEY}       # api-tennis.com via RapidAPI (~$10/mo, 500 req)
+  eliteprospects_api_key: ${ELITEPROSPECTS_API_KEY} # EliteProspects (hockey) — free tier available
+  betfair_api_key: ${BETFAIR_API_KEY}               # Betfair Exchange — better odds for tennis EV
+  betfair_session_token: ${BETFAIR_SESSION_TOKEN}   # Betfair session auth
+  pinnacle_api_key: ${PINNACLE_API_KEY}             # Pinnacle/OddsPortal sharp-bookie reference
+  # Tennis Abstract (Jeff Sackmann) — FREE, GitHub CSV downloads, no key needed
+  tennis_abstract_base_url: "https://raw.githubusercontent.com/JeffSackmann"
+  # SofaScore / Flashscore scraping — no official API, use scraping targets
+  sofascore_base_url: "https://www.sofascore.com"
+  flashscore_base_url: "https://www.flashscore.com"
   request_delay_seconds: 2
   max_retries: 3
   timeout_seconds: 10
@@ -69,8 +112,35 @@ model:
     full_current_season: 0.15
     last_2_to_3_seasons: 0.15
     head_to_head: 0.10
+  # Default ensemble weights (soccer fallback).
+  # Per-sport overrides live in models/ensemble.py SPORT_WEIGHTS dict.
+  # Tennis: Poisson=0.0 (disabled — set-based, not goal-based)
+  # Basketball: Poisson=0.0 (disabled — point totals violate Poisson assumptions)
   ensemble_weights:
-    poisson: 0.35
-    xgboost: 0.40
+    poisson: 0.30
+    xgboost: 0.45
     elo: 0.25
   min_models_agreeing: 2
+  # Sport-specific ELO K-factors.
+  # Tennis: higher K (ratings change faster — surface + form swings are large)
+  # Hockey: moderate K
+  # Basketball lower: higher K (small rosters → single player impact is huge)
+  # Soccer top: standard K=32
+  # Soccer lower: slightly higher (more volatility, weaker data)
+  elo_k_factors:
+    tennis: 48
+    hockey: 28
+    basketball: 40
+    soccer: 32
+    soccer_lower: 36
+  # ELO home advantage points per sport.
+  # Tennis: no home advantage (neutral venues for ITF/WTA)
+  # Hockey: moderate home ice advantage
+  # Basketball: moderate home court advantage
+  # Soccer: standard
+  elo_home_advantage:
+    tennis: 0
+    hockey: 80
+    basketball: 70
+    soccer: 100
+    soccer_lower: 90

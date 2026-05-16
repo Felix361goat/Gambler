@@ -3,27 +3,47 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# Per-sport model weights.
+# Poisson = 0.0 means the model is skipped entirely for that sport.
+# Tennis: Set-based outcome, no goal scoring — Poisson is inappropriate.
+# Basketball: High-scoring discrete distribution doesn't fit Poisson well.
+# Hockey/Soccer: Goal-based scoring, Poisson is appropriate.
+SPORT_WEIGHTS = {
+    "tennis":     {"poisson": 0.0,  "xgboost": 0.55, "elo": 0.45},
+    "hockey":     {"poisson": 0.35, "xgboost": 0.40, "elo": 0.25},
+    "basketball": {"poisson": 0.0,  "xgboost": 0.60, "elo": 0.40},
+    "soccer":     {"poisson": 0.30, "xgboost": 0.45, "elo": 0.25},
+}
+
 
 class EnsembleModel:
     def __init__(self, poisson_model, xgboost_model, elo_model, config: dict):
         self.poisson = poisson_model
         self.xgboost = xgboost_model
         self.elo = elo_model
+        # Default weights from config (used as fallback for unknown sports)
         weights = config.get("model", {}).get("ensemble_weights", {})
         self.w_poisson = weights.get("poisson", 0.35)
         self.w_xgboost = weights.get("xgboost", 0.40)
         self.w_elo = weights.get("elo", 0.25)
         self.min_models_agreeing = config.get("model", {}).get("min_models_agreeing", 2)
 
-    def predict(self, home_team: str, away_team: str, features: dict) -> Optional[dict]:
-        predictions = []
-        weights_used = []
+    def predict(self, home_team: str, away_team: str, features: dict, sport: str = "soccer") -> Optional[dict]:
+        # Override weights based on sport — Poisson is disabled for tennis and basketball
+        weights = SPORT_WEIGHTS.get(sport, SPORT_WEIGHTS["soccer"])
+        self.w_poisson = weights["poisson"]
+        self.w_xgboost = weights["xgboost"]
+        self.w_elo = weights["elo"]
 
-        try:
-            p_pred = self.poisson.predict_match(home_team, away_team)
-            predictions.append(("poisson", p_pred, self.w_poisson))
-        except Exception as e:
-            logger.warning(f"Poisson prediction failed: {e}")
+        predictions = []
+
+        # Only call Poisson when its weight is non-zero (disabled for tennis/basketball)
+        if self.w_poisson > 0:
+            try:
+                p_pred = self.poisson.predict_match(home_team, away_team)
+                predictions.append(("poisson", p_pred, self.w_poisson))
+            except Exception as e:
+                logger.warning(f"Poisson prediction failed: {e}")
 
         try:
             xgb_pred = self.xgboost.predict(features)
@@ -32,7 +52,7 @@ class EnsembleModel:
             logger.warning(f"XGBoost prediction failed: {e}")
 
         try:
-            elo_pred = self.elo.predict_match(home_team, away_team)
+            elo_pred = self.elo.predict_match(home_team, away_team, sport=sport)
             predictions.append(("elo", elo_pred, self.w_elo))
         except Exception as e:
             logger.warning(f"ELO prediction failed: {e}")
@@ -105,7 +125,10 @@ class EnsembleModel:
         most_common = max(set(outcomes), key=outcomes.count)
         agree_count = outcomes.count(most_common)
 
-        return agree_count >= self.min_models_agreeing
+        # When only 2 models are active (e.g. tennis/basketball with Poisson disabled),
+        # require unanimous agreement (both must agree) instead of the 2/3 majority rule.
+        required = len(predictions) if len(predictions) < 3 else self.min_models_agreeing
+        return agree_count >= required
 
     def _agreement_score(self, predictions: list) -> float:
         if len(predictions) < 2:
