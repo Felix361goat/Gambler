@@ -87,10 +87,15 @@ def select_daily_bets(all_predictions: list, config: dict, week_watchable_count:
         # Conservative EV check: apply safety margin haircut on probability
         ev_conservative = calculate_ev_with_margin(our_probability, bookmaker_odds, safety_margin)
         if ev >= threshold and ev_conservative >= threshold:
-            # Minimum edge over implied probability
+            # Minimum edge over implied probability.
+            # Use Pinnacle as the sharp-money reference when available —
+            # Pinnacle runs tighter margins than soft books, so their implied
+            # probability is a better proxy for the "true" market price.
+            # Fall back to the soft bookmaker's odds if Pinnacle is absent.
             min_edge = betting_cfg.get("min_edge_over_implied", 0.05)
             our_prob = pred.get("our_probability", 0)
-            if not check_edge_over_implied(our_prob, bookmaker_odds, min_edge):
+            reference_odds = pred.get("pinnacle_odds") or bookmaker_odds
+            if not check_edge_over_implied(our_prob, reference_odds, min_edge):
                 continue
 
             # Match-fixing risk check
@@ -205,16 +210,37 @@ def calculate_confidence_tier(data_completeness: float) -> str:
 
 
 def calculate_data_completeness(features: dict) -> float:
-    """What fraction of expected features are non-zero/non-default."""
+    """What fraction of expected feature groups were actually computed (not imputed).
+
+    FeatureBuilder records which groups were available vs imputed via
+    _available_groups / _imputed_groups keys.  When those keys are present we
+    use them for an accurate group-level completeness score.  For sport-specific
+    builders that don't produce group metadata we fall back to a simple
+    non-zero-value heuristic on the numeric features only.
+    """
     if not features:
         return 0.0
-    total = len(features)
-    non_default = sum(
-        1 for k, v in features.items()
-        if v not in (0, 0.0, False, None, "unknown", "hard", "soccer", "tennis", "hockey", "basketball")
-        and k != "sport" and k != "surface"
-    )
-    return round(non_default / total, 3) if total > 0 else 0.0
+
+    available = features.get("_available_groups")
+    imputed   = features.get("_imputed_groups")
+
+    if available is not None and imputed is not None:
+        total_groups = len(available) + len(imputed)
+        if total_groups == 0:
+            return 0.0
+        return round(len(available) / total_groups, 3)
+
+    # Fallback: count numeric keys with a real (non-zero) value, skipping
+    # metadata keys prefixed with "_" and the categorical sport/surface fields.
+    skip_keys = {"sport", "surface"}
+    numeric_items = [
+        v for k, v in features.items()
+        if not k.startswith("_") and k not in skip_keys and isinstance(v, (int, float, bool))
+    ]
+    if not numeric_items:
+        return 0.0
+    non_zero = sum(1 for v in numeric_items if v not in (0, 0.0, False))
+    return round(non_zero / len(numeric_items), 3)
 
 
 def check_matchfixing_risk(bet: dict, config: dict) -> tuple[bool, str]:

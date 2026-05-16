@@ -61,12 +61,40 @@ class XGBoostModel:
             "use_label_encoder": False,
         }
 
-        # Train over_25 model with TimeSeriesSplit validation
-        best_score = float("inf")
-        for train_idx, val_idx in tscv.split(X):
+        # Train over_25 model with TimeSeriesSplit cross-validation.
+        # Each fold fits a model, evaluates log-loss on the held-out fold, and
+        # logs the result. This is the only place where we can detect overfitting
+        # before committing to a full-data fit.
+        from sklearn.metrics import log_loss as _log_loss
+
+        fold_scores: list[float] = []
+        for fold_idx, (train_idx, val_idx) in enumerate(tscv.split(X)):
             X_tr, X_val = X.iloc[train_idx], X.iloc[val_idx]
-            y_tr = y_over25.iloc[train_idx]
+            y_tr  = y_over25.iloc[train_idx]
             y_val = y_over25.iloc[val_idx]
+            try:
+                fold_model = xgb.XGBClassifier(**params_over25)
+                fold_model.fit(
+                    X_tr, y_tr,
+                    eval_set=[(X_val, y_val)],
+                    verbose=False,
+                )
+                val_preds = fold_model.predict_proba(X_val)[:, 1]
+                score = _log_loss(y_val, val_preds)
+                fold_scores.append(score)
+                logger.debug(f"XGBoost CV fold {fold_idx + 1}/{tscv.n_splits}: log-loss={score:.4f}")
+            except Exception as e:
+                logger.warning(f"XGBoost CV fold {fold_idx + 1} failed: {e}")
+
+        if fold_scores:
+            cv_mean = float(np.mean(fold_scores))
+            cv_std  = float(np.std(fold_scores))
+            logger.info(
+                f"XGBoost over_25 CV log-loss: {cv_mean:.4f} ± {cv_std:.4f} "
+                f"(best fold: {min(fold_scores):.4f}, {len(fold_scores)}/{tscv.n_splits} folds)"
+            )
+        else:
+            logger.warning("XGBoost over_25: all CV folds failed — proceeding with full-data fit only")
 
         # Final fit on all data, then calibrate probabilities with isotonic regression.
         # Uncalibrated XGBoost softmax probabilities can diverge significantly from

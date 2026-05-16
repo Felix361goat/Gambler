@@ -203,7 +203,9 @@ def cmd_predict(config: dict):
                 news_sentiment=getattr(collection, "news", {}).get(f"{home}_{away}"),
             )
 
-            prediction = ensemble.predict(home, away, features)
+            sport = match_dict.get("sport", "soccer")
+            surface = features.get("surface") or match_dict.get("surface")
+            prediction = ensemble.predict(home, away, features, sport=sport, surface=surface)
             if prediction is None:
                 continue
 

@@ -29,12 +29,23 @@ class EnsembleModel:
         self.min_models_agreeing = config.get("model", {}).get("min_models_agreeing", 2)
         self.agreement_prob_spread_max = config.get("model", {}).get("agreement_prob_spread_max", 0.15)
 
-    def predict(self, home_team: str, away_team: str, features: dict, sport: str = "soccer") -> Optional[dict]:
+    def predict(
+        self,
+        home_team: str,
+        away_team: str,
+        features: dict,
+        sport: str = "soccer",
+        surface: Optional[str] = None,
+    ) -> Optional[dict]:
         # Override weights based on sport — Poisson is disabled for tennis and basketball
         weights = SPORT_WEIGHTS.get(sport, SPORT_WEIGHTS["soccer"])
         self.w_poisson = weights["poisson"]
         self.w_xgboost = weights["xgboost"]
         self.w_elo = weights["elo"]
+
+        # Surface is relevant for tennis ELO (clay/hard/grass separate ratings).
+        # Fall back to features dict if caller didn't supply it explicitly.
+        resolved_surface = surface or features.get("surface")
 
         predictions = []
 
@@ -53,7 +64,7 @@ class EnsembleModel:
             logger.warning(f"XGBoost prediction failed: {e}")
 
         try:
-            elo_pred = self.elo.predict_match(home_team, away_team, sport=sport)
+            elo_pred = self.elo.predict_match(home_team, away_team, sport=sport, surface=resolved_surface)
             predictions.append(("elo", elo_pred, self.w_elo))
         except Exception as e:
             logger.warning(f"ELO prediction failed: {e}")

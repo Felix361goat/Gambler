@@ -308,6 +308,14 @@ class DatabaseHandler:
                 ).fetchone()[0] or 0.0
                 pnl_cumulative = cum + pnl_daily
 
+                # Cumulative staked: sum every bet ever placed up to and including today
+                cum_staked_prev = conn.execute(
+                    "SELECT COALESCE(SUM(stake_recommended), 0) FROM bets WHERE match_date < ?",
+                    (str(target_date),),
+                ).fetchone()[0] or 0.0
+                total_staked_cum = cum_staked_prev + total_staked
+                roi_cumulative = (pnl_cumulative / total_staked_cum * 100) if total_staked_cum > 0 else 0.0
+
                 conn.execute(
                     """
                     INSERT INTO performance
@@ -328,7 +336,7 @@ class DatabaseHandler:
                         stats["lost"] or 0,
                         stats["void"] or 0,
                         roi_daily,
-                        0.0,
+                        roi_cumulative,
                         pnl_daily,
                         pnl_cumulative,
                         stats["avg_confidence"],

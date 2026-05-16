@@ -157,6 +157,11 @@ class FeatureBuilder:
         # Replace None values with 0
         features = {k: (v if v is not None else 0) for k, v in features.items()}
 
+        # Expose group-level tracking so filter.calculate_data_completeness can
+        # use an accurate signal rather than a value-level heuristic.
+        features["_available_groups"] = available_features
+        features["_imputed_groups"]   = imputed_features
+
         logger.debug(
             f"Features built for {home} vs {away}: "
             f"available={available_features}, imputed={imputed_features}"
@@ -183,10 +188,13 @@ class FeatureBuilder:
             features = calculate_tennis_features(player, opponent, surface, matches_df, self.config)
             features["sport"] = "tennis"
             features["surface"] = surface
+            features["_available_groups"] = ["tennis_features"]
+            features["_imputed_groups"]   = []
             return features
         except Exception as e:
             logger.warning(f"Tennis features failed: {e}")
-            return {"sport": "tennis", "surface": match.get("surface", "hard")}
+            return {"sport": "tennis", "surface": match.get("surface", "hard"),
+                    "_available_groups": [], "_imputed_groups": ["tennis_features"]}
 
     def _build_hockey_features(self, match: dict, matches_df) -> dict:
         """
@@ -210,11 +218,13 @@ class FeatureBuilder:
                 "away_days_rest": away_b2b["days_since_last_game"],
                 "home_b2b_penalty": home_b2b["b2b_penalty"],
                 "away_b2b_penalty": away_b2b["b2b_penalty"],
+                "_available_groups": ["hockey_schedule"],
+                "_imputed_groups":   [],
             }
             return features
         except Exception as e:
             logger.warning(f"Hockey features failed: {e}")
-            return {"sport": "hockey"}
+            return {"sport": "hockey", "_available_groups": [], "_imputed_groups": ["hockey_schedule"]}
 
     def _build_basketball_features(self, match: dict, matches_df) -> dict:
         """
@@ -238,8 +248,10 @@ class FeatureBuilder:
                 "away_player_impact_score": away_impact["player_impact_score"],
                 "home_key_player_missing": home_impact["key_player_missing"],
                 "away_key_player_missing": away_impact["key_player_missing"],
+                "_available_groups": ["basketball_impact"],
+                "_imputed_groups":   [],
             }
             return features
         except Exception as e:
             logger.warning(f"Basketball features failed: {e}")
-            return {"sport": "basketball"}
+            return {"sport": "basketball", "_available_groups": [], "_imputed_groups": ["basketball_impact"]}
