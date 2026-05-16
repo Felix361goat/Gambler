@@ -93,6 +93,23 @@ def breakeven_win_rate(decimal_odds: float) -> float:
     return round(1.0 / decimal_odds, 4)
 
 
+def calculate_ev_betfair(our_probability: float, decimal_odds: float, commission: float = 0.05) -> float:
+    """EV calculation accounting for Betfair's commission on winnings."""
+    if our_probability <= 0 or our_probability >= 1:
+        return 0.0
+    if decimal_odds <= 1.0:
+        return 0.0
+    net_odds = 1 + (decimal_odds - 1) * (1 - commission)
+    return round((our_probability * net_odds) - 1.0, 6)
+
+
+def net_odds_after_commission(decimal_odds: float, commission: float = 0.05) -> float:
+    """Convert decimal odds to net odds after exchange commission."""
+    if decimal_odds <= 1.0:
+        return decimal_odds
+    return round(1 + (decimal_odds - 1) * (1 - commission), 4)
+
+
 def scenario_pnl(bets: list, win_rates: list = None) -> dict:
     """
     Zeigt erwarteten P&L bei verschiedenen Win Rates.

@@ -11,6 +11,7 @@ Usage:
   python main.py --summarize      Send evening summary via Telegram
   python main.py --retrain        Retrain all models
   python main.py --weekly_report  Send weekly report
+  python main.py --results        Settle yesterday's results
   python main.py --test           Run all tests
   python main.py --paper_status   Print current paper mode statistics
 """
@@ -18,7 +19,7 @@ import argparse
 import logging
 import os
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 # Add project root to path
@@ -406,6 +407,165 @@ def cmd_weekly_report(config: dict):
     print("✅ Weekly report sent" if success else "❌ Failed to send weekly report")
 
 
+def cmd_results(config: dict):
+    """Fetch actual match outcomes and settle all pending/placed bets."""
+    from tracking.database import DatabaseHandler
+    from data.sources.results_source import ResultsSource
+
+    db = DatabaseHandler()
+    source = ResultsSource()
+
+    # Settle bets with match_date up to and including yesterday.
+    # Today's matches may still be in progress.
+    yesterday = date.today() - timedelta(days=1)
+
+    logger.info(f"Settling bets with match_date <= {yesterday}")
+    summary = source.fetch_results(db, match_date=yesterday)
+
+    settled = summary["settled"]
+    voided = summary["voided"]
+    skipped = summary["skipped"]
+
+    print(
+        f"Results settled: {settled} bet(s) settled, "
+        f"{voided} voided, {skipped} still pending."
+    )
+
+    # Refresh daily performance snapshot for yesterday
+    if settled + voided > 0:
+        try:
+            db.update_daily_performance(yesterday)
+        except Exception as exc:
+            logger.warning(f"Could not update daily performance: {exc}")
+
+    return summary
+
+
+def cmd_healthcheck(config: dict) -> dict:
+    """
+    Health check: verifies DB, data freshness, predictions, API keys.
+    Sends a Telegram alert if no bets were generated today on a potential game day.
+    Returns a health report dict and prints a summary.
+    """
+    import time
+
+    report = {
+        "db_ok": False,
+        "db_tables_ok": False,
+        "collect_within_24h": False,
+        "predict_ran_today": False,
+        "bets_today": 0,
+        "api_keys_ok": False,
+        "missing_api_keys": [],
+        "alerts": [],
+    }
+
+    db = None
+
+    # 1. DB accessible and has tables
+    try:
+        from tracking.database import DatabaseHandler
+        db = DatabaseHandler()
+        with db._get_conn() as conn:
+            tables = [
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            ]
+        report["db_ok"] = True
+        expected_tables = {"bets", "results", "performance"}
+        report["db_tables_ok"] = expected_tables.issubset(set(tables))
+        if not report["db_tables_ok"]:
+            missing = expected_tables - set(tables)
+            report["alerts"].append(f"Missing DB tables: {', '.join(sorted(missing))}")
+        logger.info(f"[healthcheck] DB OK, tables: {tables}")
+    except Exception as e:
+        report["alerts"].append(f"DB error: {e}")
+        logger.error(f"[healthcheck] DB error: {e}")
+
+    # 2. Last --collect within 24h (check betting.log mtime)
+    log_path = ROOT / "data" / "betting.log"
+    try:
+        if log_path.exists():
+            age_seconds = time.time() - log_path.stat().st_mtime
+            report["collect_within_24h"] = age_seconds < 86400
+            if not report["collect_within_24h"]:
+                hours_ago = age_seconds / 3600
+                report["alerts"].append(f"Last --collect was {hours_ago:.1f}h ago (>24h)")
+        else:
+            report["alerts"].append("betting.log not found — --collect may never have run")
+    except Exception as e:
+        report["alerts"].append(f"Log mtime check failed: {e}")
+
+    # 3. Last --predict ran today (check bets table for today's date)
+    today_str = str(date.today())
+    try:
+        if report["db_ok"]:
+            with db._get_conn() as conn:
+                count = conn.execute(
+                    "SELECT COUNT(*) FROM bets WHERE match_date = ?", (today_str,)
+                ).fetchone()[0]
+            report["bets_today"] = count or 0
+            report["predict_ran_today"] = count > 0
+            if not report["predict_ran_today"]:
+                report["alerts"].append("No bets generated today — --predict may not have run")
+    except Exception as e:
+        report["alerts"].append(f"Bets-today check failed: {e}")
+
+    # 4. API keys set in environment
+    required_keys = [
+        "FOOTBALL_API_KEY",
+        "ODDS_API_KEY",
+        "TELEGRAM_BOT_TOKEN",
+        "TELEGRAM_CHAT_ID",
+    ]
+    missing_keys = [
+        k for k in required_keys
+        if not os.environ.get(k) or os.environ.get(k, "").startswith("your_")
+    ]
+    report["missing_api_keys"] = missing_keys
+    report["api_keys_ok"] = len(missing_keys) == 0
+    if missing_keys:
+        report["alerts"].append(f"Missing/unconfigured API keys: {', '.join(missing_keys)}")
+
+    # 5. If 0 bets today and predict didn't run, send Telegram alert
+    if report["bets_today"] == 0 and not report["predict_ran_today"]:
+        alert_msg = (
+            f"[HEALTHCHECK] No bets generated today ({today_str}). "
+            "Run --predict or check data pipeline."
+        )
+        try:
+            from notifications.telegram_bot import TelegramBotHandler
+            bot = TelegramBotHandler(config, db)
+            bot.send_message_sync(alert_msg)
+            logger.warning(f"[healthcheck] Telegram alert sent: {alert_msg}")
+        except Exception as e:
+            logger.error(f"[healthcheck] Telegram alert failed: {e}")
+
+    # Print report
+    status = "OK" if not report["alerts"] else "DEGRADED"
+    print(f"\n{'='*44}")
+    print(f"  HEALTH CHECK -- {date.today()}  [{status}]")
+    print(f"{'='*44}")
+    print(f"  DB accessible:       {'YES' if report['db_ok'] else 'NO'}")
+    print(f"  DB tables present:   {'YES' if report['db_tables_ok'] else 'NO'}")
+    print(f"  Collect within 24h:  {'YES' if report['collect_within_24h'] else 'NO'}")
+    print(f"  Predict ran today:   {'YES' if report['predict_ran_today'] else 'NO'}")
+    print(f"  Bets today:          {report['bets_today']}")
+    print(f"  API keys OK:         {'YES' if report['api_keys_ok'] else 'NO'}")
+    if report["missing_api_keys"]:
+        print(f"  Missing keys:        {', '.join(report['missing_api_keys'])}")
+    if report["alerts"]:
+        print(f"\n  Alerts:")
+        for alert in report["alerts"]:
+            print(f"    - {alert}")
+    print(f"{'='*44}\n")
+
+    logger.info(f"[healthcheck] status={status}, alerts={report['alerts']}")
+    return report
+
+
 def cmd_test():
     """Run all tests."""
     import subprocess
@@ -454,6 +614,8 @@ def main():
     parser.add_argument("--summarize", action="store_true")
     parser.add_argument("--retrain", action="store_true")
     parser.add_argument("--weekly_report", action="store_true")
+    parser.add_argument("--results", action="store_true")
+    parser.add_argument("--healthcheck", action="store_true")
     parser.add_argument("--test", action="store_true")
     parser.add_argument("--paper_status", action="store_true")
     args = parser.parse_args()
@@ -480,6 +642,10 @@ def main():
         cmd_retrain(config)
     elif args.weekly_report:
         cmd_weekly_report(config)
+    elif args.results:
+        cmd_results(config)
+    elif args.healthcheck:
+        cmd_healthcheck(config)
     elif args.paper_status:
         cmd_paper_status(config)
     else:

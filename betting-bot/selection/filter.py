@@ -74,8 +74,11 @@ def select_daily_bets(all_predictions: list, config: dict, week_watchable_count:
         away            = pred.get("away_team", "")
         bookmaker_odds  = pred.get("bookmaker_odds", 0)
         our_probability = pred.get("our_probability", 0)
+        market          = pred.get("market", "")
+        sport           = pred.get("sport", "")
         is_fav          = any(club in [home, away] for club in favorite_clubs)
-        threshold       = min_ev * ev_override if is_fav else min_ev
+        market_threshold = _get_market_threshold(market, sport, config)
+        threshold       = market_threshold * ev_override if is_fav else market_threshold
 
         # Minimum odds check: low odds require very high win rates — too risky
         if bookmaker_odds < min_odds:
@@ -225,6 +228,42 @@ def check_edge_over_implied(our_prob: float, bookie_odds: float, min_edge: float
         return False
     implied = 1.0 / bookie_odds
     return (our_prob - implied) >= min_edge
+
+
+def _get_market_threshold(market: str, sport: str, config: dict) -> float:
+    """
+    Return the market-specific EV threshold from config.
+    Falls back to betting.min_ev_threshold if no market-specific entry exists.
+    """
+    thresholds = config.get("betting", {}).get("market_ev_thresholds", {})
+    default = thresholds.get("default", config.get("betting", {}).get("min_ev_threshold", 0.05))
+
+    if not market:
+        return default
+
+    market_lower = market.lower()
+    sport_lower = (sport or "").lower()
+
+    # Soccer 1x2 markets
+    if market_lower in ("1x2_home", "1x2_draw", "1x2_away"):
+        return thresholds.get("soccer_1x2", default)
+
+    # Totals — sport-specific
+    if market_lower in ("over_2.5", "under_2.5", "over_3.5", "under_3.5"):
+        if "hockey" in sport_lower:
+            return thresholds.get("hockey_total", default)
+        if "soccer" in sport_lower or "football" in sport_lower:
+            return thresholds.get("soccer_total", default)
+
+    # Tennis head-to-head / moneyline
+    if "tennis" in sport_lower and market_lower in ("h2h", "h2h_home", "h2h_away", "moneyline"):
+        return thresholds.get("tennis_ml", default)
+
+    # Basketball moneyline
+    if "basketball" in sport_lower and market_lower in ("moneyline", "h2h", "h2h_home", "h2h_away"):
+        return thresholds.get("basketball_ml", default)
+
+    return default
 
 
 def _check_kickoff_window(kickoff, window: dict) -> bool:

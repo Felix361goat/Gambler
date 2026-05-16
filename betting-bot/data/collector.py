@@ -10,16 +10,19 @@ Usage::
 
     collector = DataCollector()
     results = collector.collect_all()
-    # results["football_matches"]  → pd.DataFrame
-    # results["odds"]              → pd.DataFrame
-    # results["xg"]                → pd.DataFrame
-    # results["injuries"]          → pd.DataFrame
-    # results["squad_values"]      → pd.DataFrame
-    # results["weather"]           → pd.DataFrame
-    # results["nba_features"]      → pd.DataFrame
-    # results["nba_games"]         → pd.DataFrame
-    # results["nba_injuries"]      → pd.DataFrame
-    # results["news"]              → pd.DataFrame
+    # results["football_matches"]   → pd.DataFrame
+    # results["odds"]               → pd.DataFrame
+    # results["xg"]                 → pd.DataFrame
+    # results["injuries"]           → pd.DataFrame
+    # results["squad_values"]       → pd.DataFrame
+    # results["weather"]            → pd.DataFrame
+    # results["nba_features"]       → pd.DataFrame
+    # results["nba_games"]          → pd.DataFrame
+    # results["nba_injuries"]       → pd.DataFrame
+    # results["news"]               → pd.DataFrame
+    # results["hockey_matches"]     → pd.DataFrame
+    # results["basketball_matches"] → pd.DataFrame
+    # results["tennis_matches"]     → pd.DataFrame
 """
 import logging
 from datetime import datetime, timezone
@@ -34,6 +37,9 @@ from .sources.transfermarkt import TransfermarktSource
 from .sources.weather import WeatherSource
 from .sources.nba_api import NBASource
 from .sources.news_rss import NewsRSSSource
+from .sources.hockey_source import HockeySource
+from .sources.basketball_lower import BasketballLowerSource
+from .sources.tennis_source import TennisSource
 
 
 logger = logging.getLogger(__name__)
@@ -104,15 +110,21 @@ class DataCollector:
         weather_source: Optional[WeatherSource] = None,
         nba_source: Optional[NBASource] = None,
         news_source: Optional[NewsRSSSource] = None,
+        hockey_source: Optional[HockeySource] = None,
+        basketball_lower_source: Optional[BasketballLowerSource] = None,
+        tennis_source: Optional[TennisSource] = None,
     ):
         """Allow dependency injection for testing; otherwise create defaults."""
-        self.football      = football_source      or FootballAPISource()
-        self.odds          = odds_source           or OddsAPISource()
-        self.understat     = understat_source      or UnderstatSource()
-        self.transfermarkt = transfermarkt_source  or TransfermarktSource()
-        self.weather       = weather_source        or WeatherSource()
-        self.nba           = nba_source            or NBASource()
-        self.news          = news_source           or NewsRSSSource()
+        self.football            = football_source            or FootballAPISource()
+        self.odds                = odds_source                or OddsAPISource()
+        self.understat           = understat_source           or UnderstatSource()
+        self.transfermarkt       = transfermarkt_source       or TransfermarktSource()
+        self.weather             = weather_source             or WeatherSource()
+        self.nba                 = nba_source                 or NBASource()
+        self.news                = news_source                or NewsRSSSource()
+        self.hockey              = hockey_source              or HockeySource()
+        self.basketball_lower    = basketball_lower_source    or BasketballLowerSource()
+        self.tennis              = tennis_source              or TennisSource()
 
     # ------------------------------------------------------------------
     # Individual collection helpers
@@ -233,6 +245,48 @@ class DataCollector:
             result.set_error("nba_injuries",  msg)
             logger.error(f"NBA source failed: {msg}")
 
+    def _collect_hockey(self, result: CollectionResult) -> None:
+        """Fetch and normalize hockey match data."""
+        try:
+            df = self.hockey.fetch_and_normalize()
+            result.set("hockey_matches", df)
+            logger.info(
+                f"Hockey: {'OK' if df is not None else 'empty'} "
+                f"({len(df) if df is not None else 0} rows)"
+            )
+        except Exception as exc:
+            msg = str(exc)
+            result.set_error("hockey_matches", msg)
+            logger.error(f"Hockey source failed: {msg}")
+
+    def _collect_basketball_lower(self, result: CollectionResult) -> None:
+        """Fetch and normalize lower-tier European basketball data."""
+        try:
+            df = self.basketball_lower.fetch_and_normalize()
+            result.set("basketball_matches", df)
+            logger.info(
+                f"BasketballLower: {'OK' if df is not None else 'empty'} "
+                f"({len(df) if df is not None else 0} rows)"
+            )
+        except Exception as exc:
+            msg = str(exc)
+            result.set_error("basketball_matches", msg)
+            logger.error(f"BasketballLower source failed: {msg}")
+
+    def _collect_tennis(self, result: CollectionResult) -> None:
+        """Fetch and normalize tennis match data (WTA/ITF)."""
+        try:
+            df = self.tennis.fetch_and_normalize()
+            result.set("tennis_matches", df)
+            logger.info(
+                f"Tennis: {'OK' if df is not None else 'empty'} "
+                f"({len(df) if df is not None else 0} rows)"
+            )
+        except Exception as exc:
+            msg = str(exc)
+            result.set_error("tennis_matches", msg)
+            logger.error(f"Tennis source failed: {msg}")
+
     def _collect_news(self, result: CollectionResult) -> None:
         """Fetch and normalise news RSS feed entries."""
         try:
@@ -277,6 +331,9 @@ class DataCollector:
         self._collect_weather(result, weather_matches)
         self._collect_nba(result)
         self._collect_news(result)
+        self._collect_hockey(result)
+        self._collect_basketball_lower(result)
+        self._collect_tennis(result)
 
         # Log summary
         n_ok     = sum(1 for v in result.success.values() if v)

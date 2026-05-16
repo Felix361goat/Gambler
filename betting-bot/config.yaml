@@ -9,6 +9,13 @@ betting:
   probability_safety_margin: 0.10
   min_odds: 1.50
   min_edge_over_implied: 0.05      # Unsere Prob muss >5% über bookie implied liegen
+  market_ev_thresholds:
+    tennis_ml: 0.03        # 3% for tennis moneyline
+    hockey_total: 0.06     # 6% for hockey over/under
+    basketball_ml: 0.04    # 4% for basketball moneyline
+    soccer_1x2: 0.05       # 5% for soccer match result
+    soccer_total: 0.04     # 4% for soccer totals
+    default: 0.05          # fallback 5%
 
 sports:
   enabled:

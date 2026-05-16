@@ -14,6 +14,7 @@ CRON_JOBS = [
     ("0 23 * * *",   "--summarize",     "Send evening summary"),
     ("0 3 * * 0",    "--retrain",       "Retrain models"),
     ("0 20 * * 0",   "--weekly_report", "Send weekly report"),
+    ("0 10 * * *",   "--results",       "Settle yesterday's results"),
 ]
 
 
