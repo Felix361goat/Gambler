@@ -1,68 +1,99 @@
 betting:
   max_daily_bets: 10
-  min_ev_threshold: 0.03
-  watchable_ev_threshold: 0.024
+  min_ev_threshold: 0.05           # 5% minimum EV (erhöht von 3% — Low-Coverage-Märkte haben mehr Edge)
+  watchable_ev_threshold: 0.04
   min_paper_bets_before_live: 200
   bankroll_paper: 1000.0
   kelly_fraction: 0.25
   max_stake_percent: 0.05
-  probability_safety_margin: 0.10  # 10% Haircut auf unsere Prob vor EV-Berechnung
-  min_odds: 1.50                    # Unter 1.50 braucht man >67% Win Rate — zu riskant
+  probability_safety_margin: 0.10
+  min_odds: 1.50
+  min_edge_over_implied: 0.05      # Unsere Prob muss >5% über bookie implied liegen
+
+sports:
+  enabled:
+    - tennis_wta
+    - tennis_itf_women
+    - tennis_itf_men
+    - hockey_ahl
+    - hockey_echl
+    - hockey_european_minor
+    - basketball_baltic
+    - basketball_romanian
+    - basketball_european_lower
+    - soccer_england_tier4
+    - soccer_england_tier5
+    - soccer_scandinavia
+    - soccer_poland
+  disabled:                        # High-coverage markets — bookies have edge here
+    - premier_league
+    - bundesliga
+    - la_liga
+    - serie_a
+    - ligue_1
+    - nba
+    - nfl
+    - grand_slams
+    - atp_top50
+  matchfixing_excluded:            # Never bet — data unreliable or fixing risk too high
+    - table_tennis
+    - soccer_tier6_plus
+    - basketball_unknown_region
+
+  min_sample_sizes:
+    tennis_wta: 20
+    tennis_itf_women: 15
+    tennis_itf_men: 15
+    hockey_ahl: 15
+    hockey_echl: 10
+    basketball_baltic: 12
+    basketball_romanian: 10
+    soccer_england_tier4: 20
+    soccer_scandinavia: 15
+    soccer_poland: 15
+
+  confidence_tiers:
+    high_min_data_pct: 0.80        # ≥80% features available → High
+    medium_min_data_pct: 0.50      # 50-79% → Medium
+    # below 50% → Low
+
+  matchfixing_risk_flags:
+    flag_leagues:
+      - soccer_poland               # Flag but don't exclude — check per game
+      - soccer_england_tier5
+    exclude_leagues:
+      - table_tennis
+      - soccer_tier6_plus
 
 leagues:
-  # Primary markets after low-coverage-market migration.
-  # Premier League / Bundesliga / NBA are REMOVED as primary targets —
-  # they are now only eligible as watchable bets (too efficient for edge).
   priority:
-    # Tennis
-    - tennis_wta_itf           # WTA/ITF rankings 50-200, surface-specific
-    - tennis_itf_men_m15       # ITF Men M15
-    - tennis_itf_men_m25       # ITF Men M25
-    # Ice Hockey minor leagues
-    - hockey_ahl               # American Hockey League
-    - hockey_echl              # ECHL
-    - hockey_european_minor    # European minor (e.g. DEL2, Liiga, Allsvenskan)
-    # Basketball lower tiers
-    - basketball_baltic        # Baltic Basketball League
-    - basketball_romania       # Romanian Basketball League
-    - basketball_european_lower  # Other lower European basketball
-    # Football lower tiers
-    - soccer_england_tier4     # English National League (tier 4)
-    - soccer_england_tier5     # English National League North/South (tier 5)
-    - soccer_scandinavia       # Allsvenskan, Eliteserien, Superliga lower tiers
-    - soccer_poland            # Polish lower divisions (I liga and below)
-    # Legacy high-tier (watchable only — kept for watchable-bet eligibility)
-    - premier_league
-    - bundesliga
-    - nba
-  watchable_min_per_week: 1
-  watchable_max_per_week: 3
+    - tennis_wta
+    - tennis_itf_men
+    - hockey_ahl
+    - basketball_baltic
+    - soccer_england_tier4
+    - soccer_scandinavia
+    - soccer_poland
+    - hockey_echl
+    - hockey_european_minor
+    - basketball_romanian
+    - basketball_european_lower
+    - soccer_england_tier5
+    - tennis_itf_women
   watchable_preferred:
-    - premier_league
-    - bundesliga
-    - nba
+    - tennis_wta
+    - hockey_ahl
+    - basketball_baltic
+  watchable_max_per_week: 3
+  watchable_min_per_week: 1
   watchable_kickoff_window:
     earliest_hour: 17
     latest_hour: 23
-  # Minimum historical samples required per sport before a bet is eligible.
-  # Lower-coverage markets have thin data — enforce stricter floor.
-  min_samples_per_sport:
-    soccer: 50
-    soccer_lower: 80       # 4th/5th tier: fewer sharp bettors, more noise
-    tennis: 30             # Per-player surface sample
-    hockey: 40
-    basketball: 40
-  # Match-fixing risk — leagues flagged here get an automatic confidence penalty.
-  match_fixing_risk_leagues:
-    - soccer_england_tier5
-    - soccer_poland
-    - basketball_romania
-    - basketball_european_lower
-  match_fixing_confidence_penalty: 10  # Subtract from confidence_score
 
 favorite_clubs:
-  - "Arsenal"
-  - "Bristol Rovers"
+  clubs:
+    - "Arsenal"
+    - "Bristol Rovers"
   ev_override_factor: 0.80
 
 data_sources:
@@ -144,3 +175,24 @@ model:
     basketball: 70
     soccer: 100
     soccer_lower: 90
+
+data_sources_extended:
+  # Tennis Abstract (Jeff Sackmann) — FREE, GitHub CSV
+  tennis_abstract_base: "https://raw.githubusercontent.com/JeffSackmann"
+  # SofaScore — scraping target, no API key
+  sofascore_base: "https://api.sofascore.com/api/v1"
+  # EliteProspects — Hockey, has free tier
+  eliteprospects_api_key: ${ELITEPROSPECTS_API_KEY}
+  eliteprospects_base: "https://api.eliteprospects.com/v1"
+  # Betfair Exchange — Sharp odds reference for tennis
+  betfair_api_key: ${BETFAIR_API_KEY}
+  betfair_base: "https://api.betfair.com/exchange/betting/rest/v1.0"
+  # OddsPortal — historical odds scraping
+  oddsportal_base: "https://www.oddsportal.com"
+
+logging:
+  log_all_flagged_bets: true
+  track_ev_vs_result: true
+  weekly_summary: true
+  log_path: "data/bets.log"
+  matchfixing_log_path: "data/matchfixing_flags.log"

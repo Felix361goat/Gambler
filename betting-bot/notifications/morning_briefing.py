@@ -50,6 +50,22 @@ def format_morning_briefing(bets: list, performance: dict) -> str:
             f"   💵 Stake: €{stake:.2f} ({stake_pct:.1f}% Bankroll)"
             + (f"\n   {special}" if special else "")
         )
+
+        # Confidence and data completeness
+        confidence_tier = bet.get("confidence_tier", "Low")
+        completeness = bet.get("data_completeness", 0)
+        tier_emoji = {"High": "🟢", "Medium": "🟡", "Low": "🔴"}.get(confidence_tier, "🔴")
+        lines.append(f"   {tier_emoji} Konfidenz: {confidence_tier} | Daten: {completeness*100:.0f}%")
+
+        # Breakeven win rate
+        from selection.ev_calculator import breakeven_win_rate
+        be_rate = breakeven_win_rate(bet.get("bookmaker_odds", 2.0))
+        lines.append(f"   🎯 Break-Even: {be_rate*100:.1f}% Win Rate")
+
+        # Match-fixing warning if present
+        if bet.get("matchfixing_warning"):
+            lines.append(f"   ⚠️ {bet['matchfixing_warning']}")
+
         lines.append("━━━━━━━━━━━━━━━━━━━━━")
 
     avg_ev = total_ev / len(bets) if bets else 0

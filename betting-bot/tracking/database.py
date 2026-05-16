@@ -30,7 +30,14 @@ CREATE TABLE IF NOT EXISTS bets (
     watchable_reason TEXT,
     is_favorite_club BOOLEAN DEFAULT 0,
     status TEXT DEFAULT 'pending',
-    notes TEXT
+    notes TEXT,
+    sport TEXT DEFAULT 'soccer',
+    surface TEXT,
+    confidence_tier TEXT DEFAULT 'Low',
+    data_completeness REAL DEFAULT 0.0,
+    matchfixing_warning TEXT,
+    bookie_implied_prob REAL,
+    our_edge REAL
 )
 """
 
@@ -131,6 +138,29 @@ class DatabaseHandler:
         except Exception as e:
             logger.error(f"DB init failed: {e}")
             raise
+        self.migrate_schema()
+
+    def migrate_schema(self):
+        """Add new columns if they don't exist (safe to run multiple times)."""
+        new_columns = [
+            ("sport", "TEXT DEFAULT 'soccer'"),
+            ("surface", "TEXT"),
+            ("confidence_tier", "TEXT DEFAULT 'Low'"),
+            ("data_completeness", "REAL DEFAULT 0.0"),
+            ("matchfixing_warning", "TEXT"),
+            ("bookie_implied_prob", "REAL"),
+            ("our_edge", "REAL"),
+        ]
+        try:
+            with self._get_conn() as conn:
+                existing = {row[1] for row in conn.execute("PRAGMA table_info(bets)").fetchall()}
+                for col_name, col_def in new_columns:
+                    if col_name not in existing:
+                        conn.execute(f"ALTER TABLE bets ADD COLUMN {col_name} {col_def}")
+                        logger.info(f"Added column: bets.{col_name}")
+                conn.commit()
+        except Exception as e:
+            logger.error(f"migrate_schema failed: {e}")
 
     def insert_bet(self, bet_dict: dict) -> Optional[int]:
         cols = ", ".join(bet_dict.keys())
