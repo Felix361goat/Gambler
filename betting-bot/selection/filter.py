@@ -103,14 +103,18 @@ def select_daily_bets(all_predictions: list, config: dict, week_watchable_count:
                 logger.info(f"Match-fixing flag: {fixing_reason}")
 
             # Confidence tier and data completeness
-            features = pred.get("features", {})
-            completeness = calculate_data_completeness(features)
+            features = pred.get("features")
+            if features is None:
+                # No feature dict attached — completeness unknown, allow through
+                completeness = 1.0
+            else:
+                completeness = calculate_data_completeness(features)
             pred["data_completeness"] = completeness
             pred["confidence_tier"] = calculate_confidence_tier(completeness)
 
             # Hard gate: too much imputed data — skip
             min_completeness = betting_cfg.get("min_data_completeness", 0.40)
-            if completeness < min_completeness:
+            if features is not None and completeness < min_completeness:
                 logger.debug(
                     f"Skipping {pred.get('home_team')} vs {pred.get('away_team')} "
                     f"— data completeness {completeness:.0%} < {min_completeness:.0%}"

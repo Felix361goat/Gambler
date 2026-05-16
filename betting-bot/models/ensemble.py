@@ -27,6 +27,7 @@ class EnsembleModel:
         self.w_xgboost = weights.get("xgboost", 0.40)
         self.w_elo = weights.get("elo", 0.25)
         self.min_models_agreeing = config.get("model", {}).get("min_models_agreeing", 2)
+        self.agreement_prob_spread_max = config.get("model", {}).get("agreement_prob_spread_max", 0.15)
 
     def predict(self, home_team: str, away_team: str, features: dict, sport: str = "soccer") -> Optional[dict]:
         # Override weights based on sport — Poisson is disabled for tennis and basketball
@@ -115,20 +116,31 @@ class EnsembleModel:
         if len(predictions) < 2:
             return False
 
-        def outcome(pred):
+        def outcome_and_prob(pred):
             hw = pred.get("home_win_prob", 0.33)
-            d = pred.get("draw_prob", 0.33)
+            d  = pred.get("draw_prob", 0.33)
             aw = pred.get("away_win_prob", 0.34)
-            return max(["home", "draw", "away"], key=lambda x: {"home": hw, "draw": d, "away": aw}[x])
+            label = max(["home", "draw", "away"],
+                        key=lambda x: {"home": hw, "draw": d, "away": aw}[x])
+            prob = {"home": hw, "draw": d, "away": aw}[label]
+            return label, prob
 
-        outcomes = [outcome(p) for p in predictions]
-        most_common = max(set(outcomes), key=outcomes.count)
-        agree_count = outcomes.count(most_common)
+        results = [outcome_and_prob(p) for p in predictions]
+        labels = [r[0] for r in results]
+        most_common = max(set(labels), key=labels.count)
+        agreeing = [r for r in results if r[0] == most_common]
 
-        # When only 2 models are active (e.g. tennis/basketball with Poisson disabled),
-        # require unanimous agreement (both must agree) instead of the 2/3 majority rule.
+        # When only 2 models active, require unanimous; otherwise 2/3 majority.
         required = len(predictions) if len(predictions) < 3 else self.min_models_agreeing
-        return agree_count >= required
+        if len(agreeing) < required:
+            return False
+
+        # Probability magnitude gate: agreeing models must be within 0.15 of each
+        # other.  XGBoost at 0.71 and ELO at 0.52 agree directionally but diverge
+        # too widely to trust the blended probability estimate.
+        probs = [r[1] for r in agreeing]
+        max_spread = self.agreement_prob_spread_max
+        return (max(probs) - min(probs)) <= max_spread
 
     def _agreement_score(self, predictions: list) -> float:
         if len(predictions) < 2:

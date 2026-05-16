@@ -502,20 +502,37 @@ class TennisSource(BaseSource):
 
         rows = []
         for _, row in df.iterrows():
+            # Randomize which player is "home" (player1) using a deterministic coin
+            # flip based on match_id hash.  This eliminates winner-label leakage:
+            # XGBoost would otherwise learn "player1 always wins" from Sackmann CSVs
+            # where winner is unconditionally stored as the first player.
+            import hashlib
+            flip = int(hashlib.md5(str(row["match_id"]).encode()).hexdigest(), 16) % 2 == 0
+            if flip:
+                p1_name, p2_name = str(row["winner_name"]), str(row["loser_name"])
+                p1_rank, p2_rank = row["_winner_rank"], row["_loser_rank"]
+                p1_is_winner = True
+            else:
+                p1_name, p2_name = str(row["loser_name"]), str(row["winner_name"])
+                p1_rank, p2_rank = row["_loser_rank"], row["_winner_rank"]
+                p1_is_winner = False
+
             rows.append({
                 "match_id":          str(row["match_id"]),
                 "date":              str(row["_date"]) if pd.notna(row["_date"]) else "",
                 "sport":             "tennis",
-                # Convention: winner recorded as player1 / home_team
-                "home_team":         str(row["winner_name"]),
-                "away_team":         str(row["loser_name"]),
+                "home_team":         p1_name,
+                "away_team":         p2_name,
                 "league":            str(row["tourney_name"]),
                 "surface":           str(row.get("surface", "")),
-                "player1_ranking":   row["_winner_rank"] if pd.notna(row["_winner_rank"]) else None,
-                "player2_ranking":   row["_loser_rank"]  if pd.notna(row["_loser_rank"])  else None,
+                "player1_ranking":   p1_rank if pd.notna(p1_rank) else None,
+                "player2_ranking":   p2_rank if pd.notna(p2_rank) else None,
                 "tourney_level":     str(row["tourney_level"]),
-                "status":            "finished",  # Sackmann CSVs only contain results
+                "status":            "finished",
                 "tour":              tour,
+                # Training target: was player1 the historical winner?
+                # XGBoost must predict this — not "player1 wins" by construction.
+                "player1_is_winner": p1_is_winner,
             })
 
         return pd.DataFrame(rows)

@@ -2,7 +2,7 @@ betting:
   max_daily_bets: 10
   min_ev_threshold: 0.05           # 5% minimum EV (erhöht von 3% — Low-Coverage-Märkte haben mehr Edge)
   watchable_ev_threshold: 0.04
-  min_paper_bets_before_live: 200
+  min_paper_bets_before_live: 500   # 200 insufficient to distinguish 53% from 50% model statistically
   bankroll_paper: 1000.0
   kelly_fraction: 0.25
   max_stake_percent: 0.05
@@ -159,6 +159,7 @@ model:
     xgboost: 0.45
     elo: 0.25
   min_models_agreeing: 2
+  agreement_prob_spread_max: 0.15   # Agreeing models must be within 0.15 prob — rejects ELO=0.52 vs XGB=0.71
   # Sport-specific ELO K-factors.
   # Tennis: higher K (ratings change faster — surface + form swings are large)
   # Hockey: moderate K

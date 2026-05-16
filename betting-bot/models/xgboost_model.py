@@ -68,26 +68,48 @@ class XGBoostModel:
             y_tr = y_over25.iloc[train_idx]
             y_val = y_over25.iloc[val_idx]
 
-        # Final fit on all data
+        # Final fit on all data, then calibrate probabilities with isotonic regression.
+        # Uncalibrated XGBoost softmax probabilities can diverge significantly from
+        # true frequencies, causing EV and Kelly calculations to be unreliable.
         try:
-            self.model_over25 = xgb.XGBClassifier(**params_over25)
-            self.model_over25.fit(
+            from sklearn.calibration import CalibratedClassifierCV
+            base_over25 = xgb.XGBClassifier(**params_over25)
+            base_over25.fit(
                 X, y_over25,
                 eval_set=[(X.iloc[-max(1, len(X)//5):], y_over25.iloc[-max(1, len(X)//5):])],
                 verbose=False,
             )
+            # Wrap with calibration if enough samples; fall back to base model otherwise
+            if len(X) >= 100:
+                self.model_over25 = CalibratedClassifierCV(
+                    base_over25, method="isotonic", cv=min(5, len(X) // 20)
+                )
+                self.model_over25.fit(X, y_over25)
+                logger.info("XGBoost over_25: isotonic calibration applied")
+            else:
+                self.model_over25 = base_over25
+                logger.info("XGBoost over_25: calibration skipped (< 100 samples)")
         except Exception as e:
             logger.error(f"XGBoost over_25 training failed: {e}")
 
         if y_outcome is not None:
             try:
-                self.model_outcome = xgb.XGBClassifier(
+                from sklearn.calibration import CalibratedClassifierCV
+                base_outcome = xgb.XGBClassifier(
                     n_estimators=300, max_depth=5, learning_rate=0.05,
                     subsample=0.8, colsample_bytree=0.8,
                     objective="multi:softprob", num_class=3,
                     eval_metric="mlogloss", use_label_encoder=False,
                 )
-                self.model_outcome.fit(X, y_outcome, verbose=False)
+                base_outcome.fit(X, y_outcome, verbose=False)
+                if len(X) >= 100:
+                    self.model_outcome = CalibratedClassifierCV(
+                        base_outcome, method="isotonic", cv=min(5, len(X) // 20)
+                    )
+                    self.model_outcome.fit(X, y_outcome)
+                    logger.info("XGBoost outcome: isotonic calibration applied")
+                else:
+                    self.model_outcome = base_outcome
             except Exception as e:
                 logger.error(f"XGBoost outcome training failed: {e}")
 
