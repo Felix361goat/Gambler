@@ -16,6 +16,31 @@ def calculate_ev(our_probability: float, decimal_odds: float) -> float:
     return round((our_probability * decimal_odds) - 1.0, 6)
 
 
+def get_platform_odds(match_id: str, market: str, odds_api_data: list, primary_bookmaker: str) -> tuple[float, str]:
+    """
+    Return odds from the configured primary bookmaker only.
+    If the primary bookmaker has no line for this market, returns (0.0, "").
+    This keeps EV calculations grounded in odds you can actually get.
+    """
+    if not odds_api_data:
+        return 0.0, ""
+
+    bookmaker_lower = primary_bookmaker.lower()
+
+    for entry in odds_api_data:
+        if entry.get("match_id") != match_id:
+            continue
+        if entry.get("market") != market:
+            continue
+        entry_bookmaker = (entry.get("bookmaker") or "").lower()
+        if bookmaker_lower in entry_bookmaker or entry_bookmaker in bookmaker_lower:
+            odds = entry.get("odds", 0.0)
+            if odds and odds > 1.0:
+                return float(odds), entry.get("bookmaker", primary_bookmaker)
+
+    return 0.0, ""
+
+
 def find_best_odds(match_id: str, market: str, odds_api_data: list) -> tuple[float, str]:
     """
     Line shopping: scan all bookmakers, return best odds.

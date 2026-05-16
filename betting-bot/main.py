@@ -125,7 +125,7 @@ def cmd_predict(config: dict):
     from models.elo_model import EloModel
     from models.xgboost_model import XGBoostModel
     from models.ensemble import EnsembleModel
-    from selection.ev_calculator import calculate_ev, find_best_odds
+    from selection.ev_calculator import calculate_ev, calculate_ev_betfair, find_best_odds, get_platform_odds
     from selection.kelly import kelly_stake
     from selection.filter import select_daily_bets
     from tracking.performance import PerformanceTracker
@@ -222,24 +222,28 @@ def cmd_predict(config: dict):
             safety_margin = config.get("betting", {}).get("probability_safety_margin", 0.10)
             min_odds = config.get("betting", {}).get("min_odds", 1.50)
 
+            primary_bookmaker = config.get("betting", {}).get("primary_bookmaker", "bet365")
             for market, our_prob in markets.items():
-                best_odds, bookmaker = find_best_odds(match_id, market, odds_data)
-                if best_odds < min_odds:
+                # Only use odds from the configured primary platform.
+                # Line-shopping across bookmakers looks better on paper but is
+                # unreliable in practice: odds move, accounts get limited, and
+                # mixing platforms makes CLV tracking meaningless.
+                platform_odds, bookmaker = get_platform_odds(match_id, market, odds_data, primary_bookmaker)
+                if platform_odds < min_odds:
                     continue
 
                 # Apply safety margin: 10% haircut before EV + Kelly
                 our_prob_adj = our_prob * (1.0 - safety_margin)
-                if bookmaker.lower() == "betfair":
-                    from selection.ev_calculator import calculate_ev_betfair
-                    ev = calculate_ev_betfair(our_prob_adj, best_odds)
+                if primary_bookmaker.lower() == "betfair":
+                    ev = calculate_ev_betfair(our_prob_adj, platform_odds)
                 else:
-                    ev = calculate_ev(our_prob_adj, best_odds)
+                    ev = calculate_ev(our_prob_adj, platform_odds)
                 if ev <= 0:
                     continue
 
-                stake = kelly_stake(our_prob_adj, best_odds, bankroll, config)
-                kelly_frac = (best_odds - 1) * our_prob_adj - (1 - our_prob_adj)
-                kelly_frac = kelly_frac / (best_odds - 1) if best_odds > 1 else 0
+                stake = kelly_stake(our_prob_adj, platform_odds, bankroll, config)
+                kelly_frac = (platform_odds - 1) * our_prob_adj - (1 - our_prob_adj)
+                kelly_frac = kelly_frac / (platform_odds - 1) if platform_odds > 1 else 0
 
                 bet_dict = {
                     "match_date": match_dict.get("date", str(date.today())),
@@ -249,7 +253,7 @@ def cmd_predict(config: dict):
                     "away_team": away,
                     "market": market,
                     "our_probability": our_prob,
-                    "bookmaker_odds": best_odds,
+                    "bookmaker_odds": platform_odds,
                     "bookmaker_name": bookmaker,
                     "ev_score": ev,
                     "confidence_score": prediction.get("confidence_score", 50),
