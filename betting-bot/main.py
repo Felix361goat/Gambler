@@ -158,6 +158,18 @@ def cmd_predict(config: dict):
     ensemble = EnsembleModel(poisson, xgboost, elo, config)
     feature_builder = FeatureBuilder(db, config)
     tracker = PerformanceTracker(db, config)
+
+    # CLV auto-gate: warn if rolling average CLV is negative (model overpaying)
+    clv_ok, avg_clv = tracker.check_clv_gate(db)
+    if avg_clv is not None:
+        if clv_ok:
+            logger.info(f"CLV gate PASSED: rolling avg CLV = {avg_clv:+.4f} ({avg_clv*100:+.2f}%)")
+        else:
+            logger.warning(
+                f"CLV gate FAILED: rolling avg CLV = {avg_clv:+.4f} ({avg_clv*100:+.2f}%). "
+                "Model may be consistently overpaying — review model calibration."
+            )
+
     bankroll = tracker.get_current_bankroll()
 
     # Get upcoming matches

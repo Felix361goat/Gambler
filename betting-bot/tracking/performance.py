@@ -61,6 +61,43 @@ class PerformanceTracker:
             logger.error(f"calculate_max_drawdown failed: {e}")
             return 0.0
 
+    def check_clv_gate(self, db, min_bets: int = 30) -> tuple[bool, Optional[float]]:
+        """
+        Checks the rolling average CLV over the last `min_bets` settled bets.
+
+        Returns:
+            (True, avg_clv)  if avg_clv >= 0 — model is finding value.
+            (False, avg_clv) if avg_clv < 0  — model is consistently overpaying.
+            (True, None)     if fewer than `min_bets` settled bets exist yet
+                             (not enough data to make a judgment).
+        """
+        try:
+            with db._get_conn() as conn:
+                rows = conn.execute(
+                    """SELECT r.clv_score
+                       FROM results r
+                       WHERE r.clv_score IS NOT NULL
+                       ORDER BY r.settled_at DESC
+                       LIMIT ?""",
+                    (min_bets,),
+                ).fetchall()
+
+            if len(rows) < min_bets:
+                logger.info(
+                    f"CLV gate: only {len(rows)} settled bets with CLV scores "
+                    f"(need {min_bets}) — skipping gate check."
+                )
+                return True, None
+
+            clv_values = [r[0] for r in rows]
+            avg_clv = round(sum(clv_values) / len(clv_values), 6)
+            passed = avg_clv >= 0.0
+            return passed, avg_clv
+
+        except Exception as e:
+            logger.error(f"check_clv_gate failed: {e}")
+            return True, None  # Fail open — don't block on DB errors
+
     def get_full_summary(self) -> dict:
         summary = self.db.get_performance_summary(days=3650)
         settled = self.get_settled_bet_count()
