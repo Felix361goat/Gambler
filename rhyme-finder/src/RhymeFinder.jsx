@@ -206,14 +206,14 @@ async function buildResults(inputWord, mode) {
 
   await Promise.all([
     ...(mode === "en" || mode === "both" ? [
-      fetchDatamuse({ rel_rhy: inputWord }).then(r => { enPerfect = shuffle(r); }),
-      fetchDatamuse({ rel_nry: inputWord }).then(r => { enNear    = shuffle(r); }),
+      fetchDatamuse({ rel_rhy: inputWord }).then(r => { enPerfect = shuffle(r); }).catch(() => {}),
+      fetchDatamuse({ rel_nry: inputWord }).then(r => { enNear    = shuffle(r); }).catch(() => {}),
     ] : []),
     ...(mode === "de" || mode === "both" ? [
       findGermanRhymes(inputWord).then(r => {
         dePerfect = shuffle(r.perfect);
         deSlant   = shuffle(r.slant);
-      }),
+      }).catch(() => {}),
     ] : []),
   ]);
 
@@ -474,8 +474,13 @@ export default function RhymeFinder() {
 
     try {
       const data = await buildResults(sq, lang);
-      setResult(data);
-      setView("words");
+      const total = data.groups.reduce((a, g) => a + g.words.length, 0);
+      if (total === 0) {
+        setErrorMsg("Keine Reime gefunden — versuch ein anderes Wort.");
+      } else {
+        setResult(data);
+        setView("words");
+      }
     } catch (e) {
       setErrorMsg(`Fehler: ${e.message}`);
     } finally {
