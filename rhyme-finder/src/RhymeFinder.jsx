@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { GERMAN_VOCAB } from "./germanVocab";
+import { ALL_GERMAN_WORDS as DICT_FALLBACK } from "./germanRhymeDict";
 
 // ─── GERMAN WORDLIST (50k words, fetched once, cached in localStorage) ────────
 
@@ -31,8 +32,8 @@ async function loadGermanWords() {
     try { localStorage.setItem(CACHE_KEY, JSON.stringify(_deWords)); } catch {}
     return _deWords;
   } catch {
-    // fallback: use the small hardcoded vocab
-    _deWords = GERMAN_VOCAB.map(v => v.word);
+    // fallback: use the bundled 3k-word dict (works offline)
+    _deWords = DICT_FALLBACK.length > 0 ? DICT_FALLBACK : GERMAN_VOCAB.map(v => v.word);
     return _deWords;
   }
 }
