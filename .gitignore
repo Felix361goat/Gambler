@@ -13,3 +13,7 @@ betting-bot/*.pyc
 .env
 google_credentials.json
 betting-bot/tests/__pycache__/
+
+# Rhyme Finder
+rhyme-finder/node_modules/
+rhyme-finder/dist/
