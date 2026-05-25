@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { GERMAN_VOCAB } from "./germanVocab";
 import { ALL_GERMAN_WORDS as DICT_FALLBACK } from "./germanRhymeDict";
+import { JHUS_VOCAB, JHUS_CHAINS, JHUS_PRO_TIPS, JHUS_FLOW_RULES } from "./jhusData";
 
 // ─── GERMAN WORDLIST (50k words, fetched once, cached in localStorage) ────────
 
@@ -63,16 +64,19 @@ const TYPE_COLOR = {
 const tColor = t => TYPE_COLOR[t] || "#888";
 
 const EXAMPLES = {
-  both: ["Motivation", "Nacht", "charismatic", "Scheine", "dedicated", "bleiben"],
-  de:   ["Motivation", "Nacht", "Träume", "Scheine", "kämpfen", "Leben"],
-  en:   ["dedication", "charismatic", "wave", "situation", "automatic", "grind"],
+  both: ["blessed", "Motivation", "real bleiben", "Nacht", "dedication", "Scheine"],
+  de:   ["Motivation", "Nacht", "Träume", "Scheine", "kämpfen", "Freiheit"],
+  en:   ["blessed", "dedication", "alive", "situation", "wave", "grind"],
 };
 
 const EN_VIBES = ["smooth","hard","flex","street","melodic","afroswing","trap","light","emotional","dark"];
 const stableVibe = w => EN_VIBES[w.split("").reduce((a,c) => a + c.charCodeAt(0), 0) % EN_VIBES.length];
 
 // Metadata lookup from the small curated vocab (vibe + context)
-const VOCAB_MAP = Object.fromEntries(GERMAN_VOCAB.map(v => [v.word.toLowerCase(), v]));
+const VOCAB_MAP = Object.fromEntries([
+  ...GERMAN_VOCAB,
+  ...JHUS_VOCAB,
+].map(v => [v.word.toLowerCase(), v]));
 
 // ─── PHONETIC UTILS ───────────────────────────────────────────────────────────
 
@@ -82,18 +86,39 @@ function getSyllableCount(word) {
 }
 
 function extractRhymeAnchor(word) {
-  const w = word.toLowerCase();
+  const w = word.toLowerCase().replace(/[^a-zäöüß]/g, "");
+  // Longest-match first
   const ENDINGS = [
-    "ieren","ation","tion","sion","heit","keit","lich","isch","ling",
-    "ungen","ung","eine","einen","einem","einer","aum","äume","eben",
-    "acht","icht","eld","elt","ang","ein","ut","ig","er","en",
+    // German -ieren (multi-syllabic)
+    "ieren",
+    // -ation family (both DE+EN)
+    "ation","tion","sion",
+    // German suffixes
+    "heit","keit","lich","isch","ling","ungen","ung",
+    "eine","einen","einem","einer","äume","aum",
+    "eben","acht","icht","eld","elt","ang","ein",
+    // J Hus favourite anchors
+    "essed","ight","ound","ong","ive","eal","eed",
+    "ove","ine","ain","ation","eam","ree","low",
+    // Short common
+    "ay","ow","oy","ew","oo","ut","ig","er","en",
   ];
   for (const e of ENDINGS) if (w.endsWith(e)) return `-${e}`;
+  // Fallback: last vowel cluster + following consonants
   const m = w.match(/[aeiouyäöü][^aeiouyäöü]*$/);
   return m ? `-${m[0]}` : `-${w.slice(-2)}`;
 }
 
 function getStressPattern(word) {
+  const w = word.toLowerCase();
+  // J Hus specific
+  const KNOWN = {
+    "blessed": "STARK", "motivation": "schwach-schwach-STARK-schwach",
+    "situation": "schwach-schwach-STARK-schwach", "dedication": "schwach-schwach-STARK-schwach",
+    "alive": "schwach-STARK", "survive": "schwach-STARK", "thrive": "STARK",
+    "spirit": "STARK-schwach", "divine": "schwach-STARK", "energy": "STARK-schwach-schwach",
+  };
+  if (KNOWN[w]) return KNOWN[w];
   const syl = getSyllableCount(word);
   if (syl === 1) return "STARK";
   if (syl === 2) {
@@ -112,6 +137,13 @@ function getStressPattern(word) {
 
 function inferVibe(word) {
   const w = word.toLowerCase();
+  // J Hus spiritual
+  if (["blessed","spirit","divine","pray","faith","grace","grateful","energy","frequency","universe","alive","thrive","survive"].includes(w)) return "afroswing";
+  // Flex
+  if (["drip","sauce","flex","racks","bag","paper","flip","secure","winning","wave"].includes(w)) return "flex";
+  // Street
+  if (["endz","mandem","ting","bruv","bare","link","move","bredren","real","grind"].includes(w)) return "street";
+  // German suffix rules
   if (w.endsWith("ieren")) return "smooth";
   if (w.endsWith("tion")||w.endsWith("sion")) return "smooth";
   if (w.endsWith("heit")||w.endsWith("keit")) return "emotional";
@@ -121,6 +153,11 @@ function inferVibe(word) {
   if (w.endsWith("aum")||w.endsWith("äume")) return "melodic";
   if (w.endsWith("eben")) return "emotional";
   if (w.endsWith("ang")||w.endsWith("eld")) return "hard";
+  // English suffix rules
+  if (w.endsWith("ight")||w.endsWith("ong")||w.endsWith("ound")) return "hard";
+  if (w.endsWith("ow")||w.endsWith("eal")||w.endsWith("ow")) return "smooth";
+  if (w.endsWith("essed")||w.endsWith("ive")||w.endsWith("eed")) return "afroswing";
+  if (w.endsWith("ain")||w.endsWith("ine")||w.endsWith("ove")) return "emotional";
   return stableVibe(word);
 }
 
@@ -258,6 +295,27 @@ async function buildResults(inputWord, mode) {
       description: "Nah aber nicht exakt — gibt dem Flow Reibung und Energie." },
   ].filter(g => g.words.length > 0);
 
+  if (mode === "en" || mode === "both") {
+    const jhusWords = JHUS_VOCAB
+      .filter(w => w.word.toLowerCase() !== inputWord.toLowerCase())
+      .filter(w => {
+        // Nur Wörter die phonetisch passen (gleicher Reim-Anker oder ähnlich)
+        return w.context?.includes(w.word) && (
+          w.vibe === "afroswing" || w.vibe === "smooth"
+        );
+      })
+      .slice(0, 12);
+
+    if (jhusWords.length >= 3) {
+      groups.push({
+        type: "J Hus Style",
+        quality: 4,
+        description: "Vokabular im J Hus / UK Afroswing Stil — phonetisch und kulturell passend.",
+        words: jhusWords,
+      });
+    }
+  }
+
   const allUniq = dedup(shuffle([...perfectWords, ...multiWords, ...assonWords, ...slantWords]));
   const chainDefs = [
     { theme: "Ambition", vibe: "smooth"    },
@@ -278,12 +336,22 @@ async function buildResults(inputWord, mode) {
     };
   }).filter(Boolean);
 
+  // Mix in J Hus style chains when relevant
+  const jhusRelevant = JHUS_CHAINS.filter(c =>
+    c.words.some(w => allUniq.find(u => u.word.toLowerCase() === w.toLowerCase()))
+  ).slice(0, 2).map(c => ({ ...c, id: chains.length + c.id }));
+  const allChains = [...chains, ...jhusRelevant];
+
   return {
     input: inputWord,
     phonetic,
     groups,
-    chains,
-    proTip: `Nutz "${phonetic.rhymeAnchor}" am Zeilenende — dann kannst du 4-8 Bars mit demselben Klang spielen wie J Hus in seinen Hooks.`,
+    chains: allChains,
+    proTip: (() => {
+      const anchor = phonetic.rhymeAnchor?.replace('-', '');
+      return JHUS_PRO_TIPS[anchor] || JHUS_PRO_TIPS['default'] || `Nutz "${phonetic.rhymeAnchor}" am Zeilenende — 4-8 Bars mit demselben Klang wie J Hus.`;
+    })(),
+    flowRules: JHUS_FLOW_RULES,
   };
 }
 
@@ -627,6 +695,14 @@ export default function RhymeFinder() {
               {result.proTip && (
                 <div style={{ padding: "9px 13px", background: "rgba(212,168,67,0.07)", border: "1px solid rgba(212,168,67,0.15)", borderRadius: 8, fontSize: 12, color: "#D4A843", fontStyle: "italic", lineHeight: 1.7 }}>
                   💡 {result.proTip}
+                </div>
+              )}
+              {result.flowRules?.length > 0 && (
+                <div style={{ marginTop: 10, padding: "8px 13px", background: "rgba(168,122,212,0.07)", border: "1px solid rgba(168,122,212,0.15)", borderRadius: 8 }}>
+                  <div style={{ fontSize: 9, color: "#A87AD4", letterSpacing: 2, fontFamily: "'Courier New',monospace", marginBottom: 6 }}>J HUS FLOW RULES</div>
+                  {result.flowRules.slice(0, 3).map((r, i) => (
+                    <div key={i} style={{ fontSize: 11, color: "#888", marginBottom: 3, fontStyle: "italic" }}>• {r}</div>
+                  ))}
                 </div>
               )}
             </div>
