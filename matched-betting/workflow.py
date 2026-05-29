@@ -27,6 +27,7 @@ sys.path.insert(0, HERE)
 
 import yaml                       # noqa: E402
 import calculator                 # noqa: E402  (same directory)
+import notify                     # noqa: E402
 from ledger import Ledger         # noqa: E402
 
 
@@ -99,6 +100,11 @@ def cmd_status(args, cfg, ledger):
           f"[{bar}] {s['pct_to_target']:.1f}%")
     print(f"Offers: {s['offers_done']} done / {s['offers_todo']} to do  |  "
           f"{s['bets_logged']} bets logged\n")
+    if getattr(args, "telegram", False):
+        msg = (f"<b>Matched betting</b>\nLocked: €{s['locked_profit']:.2f} / "
+               f"€{target:.0f} ({s['pct_to_target']:.1f}%)\n"
+               f"{s['offers_done']} done, {s['offers_todo']} to go")
+        print("Telegram:", "sent ✅" if notify.send(cfg, msg) else "not configured")
 
 
 def cmd_next(args, cfg, ledger):
@@ -116,6 +122,10 @@ def cmd_next(args, cfg, ledger):
     print(f"\n>>> Next offer #{o['id']} — {o['bookmaker']} "
           f"(€{o['bonus_eur']:.0f}, min odds {o['min_odds']}):\n{msg}")
     print(f"   T&Cs: {o['verify_url']}  —  VERIFY current terms first!\n")
+    if getattr(args, "telegram", False):
+        tmsg = (f"<b>Next offer:</b> {o['bookmaker']} €{o['bonus_eur']:.0f} "
+                f"(min odds {o['min_odds']})\n{o['verify_url']}")
+        print("Telegram:", "sent ✅" if notify.send(cfg, tmsg) else "not configured")
 
 
 def cmd_calc(args, cfg, ledger):
@@ -176,6 +186,76 @@ def cmd_log_freebet(args, cfg, ledger):
           f"@ {args.lay_odds} -> LOCKED €{r.locked_profit:+.2f}. Offer DONE ✅")
 
 
+def _ask(prompt, cast=str, default=None):
+    raw = input(prompt).strip()
+    if not raw and default is not None:
+        return default
+    return cast(raw)
+
+
+def cmd_run(args, cfg, ledger):
+    """Interactive guided mode — prompts you through the current offer."""
+    # finish an in-progress offer first, else start the biggest todo
+    target_offer = None
+    for o in ledger.list_offers():
+        state, _ = offer_state(ledger, o)
+        if state == "await_freebet":
+            target_offer = o
+            break
+    if not target_offer:
+        target_offer = ledger.next_todo()
+    if not target_offer:
+        print("\nNo offers left to do. 🎉\n")
+        return
+
+    o = target_offer
+    state, _ = offer_state(ledger, o)
+    comm = cfg["exchange"]["commission"]
+    ex = cfg["exchange"]["name"]
+    print(f"\n=== Offer #{o['id']} — {o['bookmaker']} "
+          f"(€{o['bonus_eur']:.0f}, min odds {o['min_odds']}) ===")
+    print(f"Verify current T&Cs: {o['verify_url']}")
+
+    if state == "need_qualifying":
+        print("\n-- STEP 1: QUALIFYING BET --")
+        print("Find a match, note the BACK odds at the bookie and the LAY odds "
+              f"on {ex} (as close as possible).")
+        bs = _ask("Back stake € (e.g. 50): ", float)
+        bo = _ask("Back odds at bookie (e.g. 3.0): ", float)
+        lo = _ask(f"Lay odds on {ex} (e.g. 3.05): ", float)
+        ev = _ask("Match (optional): ", str, default="")
+        r = calculator.calc(bs, bo, lo, commission=comm, bet_type="qualifying")
+        print(f"\n  >> LAY €{r.lay_stake:.2f} @ {lo} on {ex} "
+              f"(liability €{r.liability:.2f})")
+        print(f"  >> Qualifying loss either way: €{r.locked_profit:+.2f}")
+        if _ask("\nPlaced both bets? Log it? [y/N]: ", str, "n").lower() == "y":
+            r.lay_odds = lo
+            ledger.add_bet(o["id"], "qualifying", r, event=ev,
+                           back_odds=bo, back_stake=bs, commission=comm)
+            ledger.set_status(o["id"], "in_progress")
+            print("Logged. Once the bonus lands, run `run` again for the free bet.")
+    elif state == "await_freebet":
+        print("\n-- STEP 2: FREE BET --")
+        print(f"Confirm the €{o['bonus_eur']:.0f} free bet is credited. Pick a "
+              "higher-odds selection (more retention).")
+        bs = _ask(f"Free bet value € [{o['bonus_eur']:.0f}]: ",
+                  float, default=o["bonus_eur"])
+        bo = _ask("Back odds at bookie (e.g. 6.0): ", float)
+        lo = _ask(f"Lay odds on {ex} (e.g. 6.1): ", float)
+        ev = _ask("Match (optional): ", str, default="")
+        r = calculator.calc(bs, bo, lo, commission=comm, bet_type="freebet")
+        print(f"\n  >> LAY €{r.lay_stake:.2f} @ {lo} on {ex} "
+              f"(liability €{r.liability:.2f})")
+        print(f"  >> LOCKED PROFIT either way: €{r.locked_profit:+.2f} "
+              f"({r.retention_pct}% of free bet)")
+        if _ask("\nPlaced both bets? Log it? [y/N]: ", str, "n").lower() == "y":
+            r.lay_odds = lo
+            ledger.add_bet(o["id"], "freebet", r, event=ev,
+                           back_odds=bo, back_stake=bs, commission=comm)
+            ledger.set_status(o["id"], "done")
+            print("Offer DONE ✅  Run `status` to see your total.")
+
+
 def cmd_export(args, cfg, ledger):
     import csv
     out = cfg["paths"]["csv_export"]
@@ -217,8 +297,9 @@ def build_parser():
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("seed")
-    sub.add_parser("status")
-    sub.add_parser("next")
+    sub.add_parser("run")
+    st = sub.add_parser("status"); st.add_argument("--telegram", action="store_true")
+    nx = sub.add_parser("next"); nx.add_argument("--telegram", action="store_true")
     sub.add_parser("export")
 
     c = sub.add_parser("calc")
@@ -248,8 +329,8 @@ def build_parser():
 
 
 DISPATCH = {
-    "seed": cmd_seed, "status": cmd_status, "next": cmd_next, "calc": cmd_calc,
-    "start": cmd_start, "log-qualifying": cmd_log_qualifying,
+    "seed": cmd_seed, "run": cmd_run, "status": cmd_status, "next": cmd_next,
+    "calc": cmd_calc, "start": cmd_start, "log-qualifying": cmd_log_qualifying,
     "log-freebet": cmd_log_freebet, "export": cmd_export,
 }
 
