@@ -95,6 +95,36 @@ seed €2,000 + €150/mo):
 
 ---
 
+## Strategy decision — validated by 3-agent analysis + OOS test
+
+**Question asked:** an "active mini-ETF" (few individual stocks, actively
+timed/rotated) — better than a broad ETF? **Answer (unanimous across 3 agents
++ evidence): No.** The single-stock version is more expensive, riskier, and
+more tax-inefficient than BOTH a broad ETF and the already-validated trend
+engine. Evidence:
+- Concentration does NOT raise expected return, only variance (Bessembinder:
+  ~4% of stocks created all net market wealth; 57% underperformed T-bills).
+- Timing mainly reduces drawdown, not raw return (Faber).
+- 84–90% of professionals fail to beat the index over 10–15y (SPIVA); the
+  average investor trailed by ~8.5%/yr (DALBAR).
+- Austrian tax: 27.5% on every realized gain, NO loss carry-forward → ~2–4%/yr
+  drag that can consume the whole timing edge.
+
+**Decided architecture — Core + Satellite:**
+- **Core (70–85%):** a broad, ACCUMULATING world ETF (e.g. FTSE All-World).
+  Buy & hold, tax-efficient (deferred), the compounding motor for the monthly
+  contributions.
+- **Satellite (15–30%):** the validated vol-targeted TREND engine on BROAD
+  ETFs (equities/gold/bonds + optionally 2–3 sector/region ETFs rotated by the
+  same signal). Low turnover. Purpose: drawdown protection + a modest return
+  edge. Optional moderate leverage on this sleeve ONLY, after a clean live run.
+- **Tax trick:** direct new contributions into the underweight sleeve instead
+  of selling winners, to defer KESt.
+
+**Honest expectation:** main benefit = a smoother ride (−7% to −18% drawdown
+vs −51%) plus a modest return edge. The €50k target comes mainly from the
+~€400–600/mo contributions, not from magic returns.
+
 ## Current status
 - ✅ Phase 1 tooling built, tested (5/5), pushed: `matched-betting/`
 - ✅ Simulations: `sim/funding_arb_sim.py`, `sim/trend_backtest.py`,
