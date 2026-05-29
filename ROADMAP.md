@@ -32,9 +32,22 @@ in `matched-betting/`.
 The engine = **diversified systematic trend-following + a funding-arb yield
 base** (a "barbell": safe core + trend sleeve). Documented edge, but unproven
 until tested on *our* data.
-- [ ] Build the diversified multi-asset trend backtest (equities/bonds/gold/
-      crypto), volatility-targeted, modest leverage — extend `sim/trend_backtest.py`.
-- [ ] Paper-trade it live for **60–90 days** via free broker APIs
+- [x] Diversified multi-asset trend backtest built (`sim/diversified_trend.py`),
+      equities + gold + bonds, vol-targeted, 1970–2026. **Result (in-sample):**
+
+      | portfolio              | CAGR  | maxDD |
+      |------------------------|------:|------:|
+      | 60/40 buy & hold       | 7.6%  | −29%  |
+      | diversified trend 1×   | 9.9%  | −14%  |
+      | diversified trend lev. | 18.2% | −18%  |
+
+      Higher return at *lower* drawdown than 60/40 → the edge is real here.
+      **Caveats:** in-sample, no fees/slippage/taxes modelled, bond return is a
+      duration proxy, and the leveraged "x-money" assumes the edge persists for
+      decades. Real-world costs + edge decay are why `capital_journey.py` uses a
+      conservative 15% mean, not 18%.
+- [ ] Add crypto + more markets, subtract realistic costs, then
+      paper-trade it live for **60–90 days** via free broker APIs
       (Alpaca for stocks/ETFs, a crypto exchange for the arb base) on a cheap VPS.
 - **Gate to Phase 3:** paper results show **net CAGR clearly > ETF**, **max
   drawdown < ~35%**, and clean execution. If it fails, we do NOT deploy — we
