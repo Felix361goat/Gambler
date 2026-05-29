@@ -343,6 +343,24 @@ def cmd_dlog_freebet(args, cfg, ledger):
           f"€{r.locked_profit:+.2f}. Offer DONE ✅")
 
 
+def cmd_rcalc(args, cfg, ledger):
+    r = calculator.rollover_retention(
+        args.bonus, args.rollover, loss_rate=args.loss_rate,
+        wager_deposit_too=args.wager_deposit_too, deposit=args.deposit)
+    print(f"\n[deposit bonus €{args.bonus:.0f}, wager {args.rollover}x"
+          f"{' (deposit+bonus)' if args.wager_deposit_too else ''}, "
+          f"loss/turnover {args.loss_rate:.1%}]")
+    print(f"  total turnover needed: €{r['turnover']:.0f}")
+    print(f"  expected cost to clear: €{r['expected_cost']:.2f}")
+    if r["worth_it"]:
+        print(f"  ✅ retained profit: €{r['retained_profit']:.2f} "
+              f"({r['retention_pct']}% of bonus)\n")
+    else:
+        print(f"  ❌ NOT worth it: €{r['retained_profit']:.2f} — rollover eats "
+              f"the bonus. Skip.\n")
+    return r
+
+
 def build_parser():
     p = argparse.ArgumentParser(description="Matched-betting dynamic workflow")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -398,6 +416,13 @@ def build_parser():
     dfb.add_argument("--back-stake", type=float, default=0.0,
                      help="defaults to the offer's bonus amount")
     dfb.add_argument("--hedge-odds", type=float, required=True)
+
+    rc = sub.add_parser("rcalc")   # deposit bonus with wagering requirement
+    rc.add_argument("--bonus", type=float, required=True)
+    rc.add_argument("--rollover", type=float, required=True)
+    rc.add_argument("--loss-rate", type=float, default=0.02)
+    rc.add_argument("--deposit", type=float, default=0.0)
+    rc.add_argument("--wager-deposit-too", action="store_true")
     return p
 
 
@@ -406,7 +431,7 @@ DISPATCH = {
     "calc": cmd_calc, "start": cmd_start, "log-qualifying": cmd_log_qualifying,
     "log-freebet": cmd_log_freebet, "export": cmd_export,
     "dcalc": cmd_dcalc, "dlog-qualifying": cmd_dlog_qualifying,
-    "dlog-freebet": cmd_dlog_freebet,
+    "dlog-freebet": cmd_dlog_freebet, "rcalc": cmd_rcalc,
 }
 
 

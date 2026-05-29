@@ -101,6 +101,32 @@ def dutch(back_stake, back_odds, hedge_odds, bet_type="qualifying"):
     )
 
 
+def rollover_retention(bonus, rollover, loss_rate=0.02, wager_deposit_too=False,
+                       deposit=0.0):
+    """
+    Deposit-match bonus with a WAGERING requirement ("wager Nx before withdrawal").
+    Models the multi-turnover reality the single-bet calc ignores.
+
+    bonus        bonus amount granted
+    rollover     turnover multiple (e.g. 5 = wager 5x)
+    loss_rate    cost per €1 of turnover when each bet is hedged (~0.015-0.03
+                 dutching at sensible odds; higher if min-odds are high)
+    wager_deposit_too  some books require (deposit+bonus) x rollover
+    Returns dict with total turnover, expected cost, retained profit, retention%.
+    """
+    base = bonus + (deposit if wager_deposit_too else 0.0)
+    turnover = rollover * base
+    expected_cost = turnover * loss_rate
+    retained = bonus - expected_cost
+    return {
+        "turnover": round(turnover, 2),
+        "expected_cost": round(expected_cost, 2),
+        "retained_profit": round(retained, 2),
+        "retention_pct": round(retained / bonus * 100, 1) if bonus else 0.0,
+        "worth_it": retained > 0,
+    }
+
+
 def _demo():
     print("=== AUSTRIA MODE — hedge at a 2nd bookmaker (no exchange) ===\n")
     print("Use a 2-OUTCOME market (tennis / over-under 2.5 / BTTS yes-no).\n")

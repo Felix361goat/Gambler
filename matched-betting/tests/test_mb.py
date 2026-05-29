@@ -58,6 +58,18 @@ def test_dutch_qualifying_small_cost():
     assert r.total_outlay > 0
 
 
+def test_rollover_low_is_worth_it():
+    """Low rollover (5x at 2%/turnover) keeps most of the bonus."""
+    r = calculator.rollover_retention(100, 5, loss_rate=0.02)
+    assert r["worth_it"] and 80 <= r["retention_pct"] <= 95
+
+
+def test_rollover_high_can_kill_bonus():
+    """Very high rollover eats the bonus -> not worth it."""
+    r = calculator.rollover_retention(100, 60, loss_rate=0.02)
+    assert not r["worth_it"]
+
+
 def test_ledger_seed_and_summary():
     with tempfile.TemporaryDirectory() as d:
         lg = Ledger(os.path.join(d, "t.db"))
