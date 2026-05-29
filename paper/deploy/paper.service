@@ -1,0 +1,14 @@
+[Unit]
+Description=Paper-trading harness — one rebalance run
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# adjust path + user to your Hetzner setup
+WorkingDirectory=/opt/Gambler/paper
+ExecStart=/usr/bin/python3 run_daily.py
+# Telegram summaries (optional)
+Environment=TELEGRAM_BOT_TOKEN=
+Environment=TELEGRAM_CHAT_ID=
+# alert on failure (optional): OnFailure handled by a separate unit if desired
