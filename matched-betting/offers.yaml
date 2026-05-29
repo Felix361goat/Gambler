@@ -1,0 +1,96 @@
+# Austrian-facing bookmaker welcome offers — WORKING CHECKLIST.
+#
+# IMPORTANT: bonus amounts and terms change constantly. The numbers below are
+# realistic placeholders to get you started — ALWAYS open the bookie, read the
+# current welcome-offer T&Cs, and correct `bonus_eur` / `min_odds` / `wagering`
+# before working an offer. Update via `workflow.py edit` or just edit this file.
+#
+# offer_type:
+#   deposit_match  -> they match your deposit with bonus funds you must wager
+#   free_bet       -> a free bet (stake-not-returned) after a qualifying bet
+#   bet_get        -> "bet X get Y free bet" (qualifying bet + free bet)
+#
+# status: todo | in_progress | done | skipped
+
+offers:
+  - bookmaker: Interwetten
+    offer_type: bet_get
+    bonus_eur: 100
+    min_odds: 2.0
+    wagering: "qualifying bet at >=2.0, free bet credited after settlement"
+    verify_url: https://www.interwetten.com
+    status: todo
+
+  - bookmaker: bwin
+    offer_type: free_bet
+    bonus_eur: 50
+    min_odds: 1.7
+    wagering: "first bet refunded as free bet if it loses"
+    verify_url: https://www.bwin.com
+    status: todo
+
+  - bookmaker: bet-at-home
+    offer_type: deposit_match
+    bonus_eur: 50
+    min_odds: 1.7
+    wagering: "bonus must be wagered 3x at >=1.7 before withdrawal"
+    verify_url: https://www.bet-at-home.com
+    status: todo
+
+  - bookmaker: NetBet
+    offer_type: bet_get
+    bonus_eur: 50
+    min_odds: 2.0
+    wagering: "bet 10 get 10, staged free bets"
+    verify_url: https://www.netbet.at
+    status: todo
+
+  - bookmaker: Betano
+    offer_type: deposit_match
+    bonus_eur: 100
+    min_odds: 1.5
+    wagering: "deposit match, rollover applies"
+    verify_url: https://www.betano.at
+    status: todo
+
+  - bookmaker: Cashpoint
+    offer_type: free_bet
+    bonus_eur: 30
+    min_odds: 1.5
+    wagering: "free bet after first deposit"
+    verify_url: https://www.cashpoint.at
+    status: todo
+
+  - bookmaker: Merkur Bets
+    offer_type: bet_get
+    bonus_eur: 50
+    min_odds: 1.8
+    wagering: "bet and get free bets"
+    verify_url: https://www.merkurbets.at
+    status: todo
+
+  - bookmaker: Betway
+    offer_type: free_bet
+    bonus_eur: 50
+    min_odds: 1.75
+    wagering: "free bet on first deposit"
+    verify_url: https://www.betway.com
+    status: todo
+
+  # You said you already used these — pre-marked skipped so welcome offers
+  # are not double-counted. Reload offers can still be added later.
+  - bookmaker: Tipico
+    offer_type: bet_get
+    bonus_eur: 100
+    min_odds: 2.0
+    wagering: "ALREADY USED — welcome offer likely spent"
+    verify_url: https://www.tipico.at
+    status: skipped
+
+  - bookmaker: Admiral
+    offer_type: deposit_match
+    bonus_eur: 100
+    min_odds: 1.7
+    wagering: "ALREADY USED — welcome offer likely spent"
+    verify_url: https://www.admiral.at
+    status: skipped

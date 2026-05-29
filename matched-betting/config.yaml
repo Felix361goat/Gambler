@@ -1,0 +1,30 @@
+exchange:
+  # Betfair is restricted in Austria -> use Smarkets (or Matchbook).
+  name: Smarkets
+  commission: 0.02          # 2% on net winnings; set 0.0 during 0%-commission promos
+
+bankroll:
+  float_eur: 400            # working capital parked across bookie + exchange
+  target_profit_eur: 1500   # the goal we track progress toward
+
+defaults:
+  # Sensible odds bands for low-risk matched betting.
+  qualifying_odds_max: 3.5  # keep qualifying bets at modest odds (lower liability)
+  freebet_odds_min: 4.0     # higher odds on free bets squeeze out more retention
+  freebet_odds_max: 8.0
+
+paths:
+  db: data/mb.db
+  csv_export: data/ledger_export.csv
+
+telegram:
+  # Optional. Reuses the same pattern as the prediction bot. Leave blank to disable.
+  bot_token: ${TELEGRAM_BOT_TOKEN}
+  chat_id: ${TELEGRAM_CHAT_ID}
+
+google_sheets:
+  # Optional. Drop google_credentials.json next to this file and set the id.
+  enabled: false
+  credentials_file: google_credentials.json
+  spreadsheet_id: ${MB_SHEET_ID}
+  worksheet: Ledger
