@@ -10,22 +10,24 @@ backed by the simulations in `sim/` and the tools in `matched-betting/`.
 
 ---
 
-## Phase 0 — Confirm the exchange (the gate for everything)  ⛔
-Matched betting needs a working **lay** exchange in Austria (Betfair is
-restricted → use **Smarkets**/Matchbook).
-- [ ] Open + fund a Smarkets account.
-- [ ] Place a small test lay on a Bundesliga market; confirm it matches.
-- **Gate:** if you can't lay, skip to Phase 2 and bootstrap from own savings instead.
+## Phase 0 — Hedge venue  ✅ resolved: DUTCHING (no exchange in AT)
+Betfair, Smarkets AND Matchbook are all **restricted in Austria** (verified
+2026). So matched betting hedges via **dutching** — backing the opposite outcome
+at a **second bookmaker** on a 2-outcome market. Retention ~75–80%.
+- **Gate cleared:** the tool now uses dutching by default; no exchange needed.
 
-## Phase 1 — Matched-betting bootstrap (near risk-free seed)  ✅ tools built
-Harvest bookmaker welcome bonuses, hedged on the exchange. **Tools done & tested**
-in `matched-betting/`.
+## Phase 1 — Matched-betting bootstrap (near risk-free seed)  ✅ tools built & tested
+Harvest bookmaker welcome bonuses, hedged by dutching. **Done & tested** in
+`matched-betting/` (calculator, dynamic workflow, dutching commands, SQLite
+ledger, Telegram, 7/7 tests).
 - [ ] `pip install pyyaml`; `python3 workflow.py seed`
-- [ ] Work each offer with `python3 workflow.py run` (start with Betano's €20
-      no-deposit free bet — pure profit).
-- **Target:** €1–2k locked profit (tracked in the ledger + progress bar).
-- **Reality:** one-off harvest, manual labour, accounts get limited eventually.
-  It's the *seed*, not the engine.
+- [ ] Work each offer (start with Betano's €20 no-deposit free bet) using
+      `dcalc` → `dlog-qualifying` / `dlog-freebet`.
+- **Realistic target (Tipico/Admiral already used):** ~€450–800 across ~10–14
+  reputable AT bookmakers (tier list in chat). Doubling possible via a 2nd
+  person's own accounts (their identity/device/money — legit, mind household/IP).
+- **Reality:** one-off harvest, manual labour, accounts get limited. It's the
+  *seed*, not the engine.
 - **Gate to Phase 3:** seed banked **and** Phase 2 validated.
 
 ## Phase 2 — Build & PROVE the wealth engine on paper (no money)
@@ -46,12 +48,22 @@ until tested on *our* data.
       duration proxy, and the leveraged "x-money" assumes the edge persists for
       decades. Real-world costs + edge decay are why `capital_journey.py` uses a
       conservative 15% mean, not 18%.
-- [ ] Add crypto + more markets, subtract realistic costs, then
-      paper-trade it live for **60–90 days** via free broker APIs
-      (Alpaca for stocks/ETFs, a crypto exchange for the arb base) on a cheap VPS.
-- **Gate to Phase 3:** paper results show **net CAGR clearly > ETF**, **max
-  drawdown < ~35%**, and clean execution. If it fails, we do NOT deploy — we
-  fall back to low-cost ETF investing (still beats most active retail).
+- [x] **Out-of-sample test** (`sim/oos_validation.py`): trend beats equities
+      buy&hold OOS (1998–2026) on a risk-adjusted basis (9.0% CAGR / −7% DD vs
+      7.1% / −51%); stable across 8/10/12-mo lookbacks → not overfit.
+- [x] **Paper-trading harness built & tested** (`paper/`): Core+Satellite,
+      SQLite state, idempotent `run_daily.py`, `replay_selftest.py` (10.5% CAGR
+      / −36% DD vs equities 7.9% / −51% over 1971–2026), 7/7 tests. Flips to live
+      with one config line.
+- [ ] Deploy on the Hetzner VPS (systemd timer + yfinance/Tiingo) and paper-run
+      **60–90 days** to validate plumbing + measure real costs.
+- **Note — funding-arb sleeve dropped for EU retail:** ESMA (Feb 2026) treats
+  crypto perps as CFDs → retail max 2:1 leverage, so the live engine is
+  **trend-following only**; arb stays paper-only.
+- **Gate to Phase 3 (operational, not "did it profit"):** near-zero tracking
+  error vs the parallel backtest, realized costs ≤ modeled, ≥98% cron uptime.
+  Expect realistic net returns *low single digits unlevered* after costs + 27.5%
+  KESt — the paper test proves plumbing, not edge.
 
 ## Phase 3 — Deploy capital (the barbell goes live)
 Combine the matched-betting seed + your own €500–1k + ongoing monthly savings.
@@ -126,9 +138,16 @@ vs −51%) plus a modest return edge. The €50k target comes mainly from the
 ~€400–600/mo contributions, not from magic returns.
 
 ## Current status
-- ✅ Phase 1 tooling built, tested (5/5), pushed: `matched-betting/`
-- ✅ Simulations: `sim/funding_arb_sim.py`, `sim/trend_backtest.py`,
-  `sim/aggressive_sim.py`, `sim/capital_journey.py`
-- ⛔ **You:** do Phase 0 (confirm Smarkets) and start Phase 1 offers.
-- 🔜 **Next build:** Phase 2 diversified multi-asset trend backtest, then the
-  paper-trading harness.
+- ✅ **Phase 0 resolved** — Austria has no exchange → dutching (2nd bookmaker).
+- ✅ **Phase 1 tool complete** (`matched-betting/`, 7/7 tests): calculator,
+  dynamic workflow, dutching commands (`dcalc`/`dlog-*`), SQLite ledger,
+  Telegram, refreshed AT offer list + tier list.
+- ✅ **Simulations** (`sim/`): funding_arb, trend_backtest, aggressive,
+  capital_journey, diversified_trend, **oos_validation**.
+- ✅ **Phase 2 harness built** (`paper/`, 7/7 tests): Core+Satellite, SQLite,
+  idempotent `run_daily.py`, `replay_selftest.py`, paper→live in one config line.
+- ✅ Side experiment: `fun-challenge/` (€20 tracker + value-bet finder).
+- ⛔ **You (when ready):** start Phase 1 offers (Betano €20 first); withdraw the
+  Admiral €20 (or use it as a dutch hedge).
+- 🔜 **Next build:** deploy `paper/` on the Hetzner VPS (systemd + live data)
+  and start the 60–90 day paper run; later, the live `IBKRBroker` adapter.
