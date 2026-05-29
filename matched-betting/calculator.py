@@ -57,27 +57,67 @@ def calc(back_stake, back_odds, lay_odds, commission=0.02, bet_type="qualifying"
     )
 
 
+# --------------------------------------------------------------------------
+# AUSTRIA MODE: no betting exchange available -> hedge at a SECOND bookmaker.
+# Instead of laying, you BACK the opposite outcome at another bookie. Works on
+# 2-outcome markets (tennis, over/under 2.5, both-teams-to-score yes/no).
+# --------------------------------------------------------------------------
+@dataclass
+class DutchResult:
+    hedge_stake: float           # cash to back the OPPOSITE outcome at bookie B
+    profit_if_back_wins: float   # your selection at bookie A wins
+    profit_if_hedge_wins: float  # the opposite outcome at bookie B wins
+    locked_profit: float         # the (roughly equal) guaranteed outcome
+    retention_pct: float         # for free bets: profit as % of free-bet value
+    total_outlay: float          # cash you must put down (excl. the free bet)
+
+
+def dutch(back_stake, back_odds, hedge_odds, bet_type="qualifying"):
+    """
+    back_odds  = odds of YOUR selection at bookie A.
+    hedge_odds = odds of the OPPOSITE outcome at bookie B (best you can find).
+    """
+    if bet_type == "freebet":
+        # free bet on A (stake not returned); hedge with cash at B
+        hedge_stake = back_stake * (back_odds - 1) / hedge_odds
+        p_back_wins = back_stake * (back_odds - 1) - hedge_stake
+        p_hedge_wins = hedge_stake * (hedge_odds - 1)
+        outlay = hedge_stake
+    else:  # qualifying: cash on A, cash hedge on B
+        hedge_stake = back_stake * back_odds / hedge_odds
+        p_back_wins = back_stake * (back_odds - 1) - hedge_stake
+        p_hedge_wins = hedge_stake * (hedge_odds - 1) - back_stake
+        outlay = back_stake + hedge_stake
+
+    locked = min(p_back_wins, p_hedge_wins)
+    fb = back_stake if bet_type == "freebet" else 0.0
+    return DutchResult(
+        hedge_stake=round(hedge_stake, 2),
+        profit_if_back_wins=round(p_back_wins, 2),
+        profit_if_hedge_wins=round(p_hedge_wins, 2),
+        locked_profit=round(locked, 2),
+        retention_pct=round(locked / fb * 100, 1) if fb else 0.0,
+        total_outlay=round(outlay, 2),
+    )
+
+
 def _demo():
-    print("=== Worked example: 'Bet EUR 50, get EUR 50 free bet' ===\n")
+    print("=== AUSTRIA MODE — hedge at a 2nd bookmaker (no exchange) ===\n")
+    print("Use a 2-OUTCOME market (tennis / over-under 2.5 / BTTS yes-no).\n")
 
-    print("STEP 1 - Qualifying bet (unlock the bonus):")
-    q = calc(back_stake=50, back_odds=3.0, lay_odds=3.05, commission=0.02,
-             bet_type="qualifying")
-    print(f"  Back EUR 50 @ 3.0 at the bookie")
-    print(f"  -> LAY EUR {q.lay_stake} @ 3.05 on Betfair (liability EUR {q.liability})")
-    print(f"  If back wins: {q.profit_if_back_wins:+.2f} | if back loses: {q.profit_if_back_loses:+.2f}")
-    print(f"  Qualifying loss (cost to unlock bonus): EUR {q.locked_profit:+.2f}\n")
+    print("FREE BET conversion: €50 free bet @ 4.0 (bookie A),")
+    print("hedge the opposite outcome @ 1.36 (bookie B):")
+    f = dutch(back_stake=50, back_odds=4.0, hedge_odds=1.36, bet_type="freebet")
+    print(f"  -> BACK €{f.hedge_stake} on the opposite outcome at bookie B")
+    print(f"  A wins: {f.profit_if_back_wins:+.2f} | B wins: {f.profit_if_hedge_wins:+.2f}")
+    print(f"  LOCKED: €{f.locked_profit:+.2f}  ({f.retention_pct}% of the free bet)")
+    print(f"  Cash you put down: €{f.total_outlay}\n")
 
-    print("STEP 2 - Free bet (lock in the profit):")
-    f = calc(back_stake=50, back_odds=6.0, lay_odds=6.1, commission=0.02,
-             bet_type="freebet")
-    print(f"  Back EUR 50 FREE BET @ 6.0 at the bookie")
-    print(f"  -> LAY EUR {f.lay_stake} @ 6.1 on Betfair (liability EUR {f.liability})")
-    print(f"  If back wins: {f.profit_if_back_wins:+.2f} | if back loses: {f.profit_if_back_loses:+.2f}")
-    print(f"  Locked profit: EUR {f.locked_profit:+.2f}  ({f.retention_pct}% of free bet)\n")
-
-    total = q.locked_profit + f.locked_profit
-    print(f"=== NET on this offer: EUR {total:+.2f} (guaranteed, any result) ===")
+    print("QUALIFYING bet: €25 @ 2.10 (bookie A), hedge @ 2.05 (bookie B):")
+    q = dutch(back_stake=25, back_odds=2.10, hedge_odds=2.05, bet_type="qualifying")
+    print(f"  -> BACK €{q.hedge_stake} on the opposite outcome at bookie B")
+    print(f"  A wins: {q.profit_if_back_wins:+.2f} | B wins: {q.profit_if_hedge_wins:+.2f}")
+    print(f"  Qualifying cost: €{q.locked_profit:+.2f} (small, due to bookie margins)")
 
 
 if __name__ == "__main__":
