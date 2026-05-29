@@ -1,0 +1,30 @@
+# Paper-trading harness config.
+# Flip `provider`/`broker` to go live — nothing else changes.
+
+provider: csv          # csv (replay/test) | live (yfinance on the VPS)
+broker: paper          # paper | ibkr (live adapter to add at deployment)
+
+start_equity: 10000.0  # paper starting capital
+cost_bps: 0.0010       # round-trip-ish cost/slippage per unit traded (10 bps)
+
+# Core + Satellite (agent-validated design).
+core:
+  symbol: equities     # broad buy & hold. LIVE: map to e.g. VWCE / IWDA
+  weight: 0.75
+
+satellite:
+  assets: [equities, gold, bonds]   # LIVE: e.g. SPY, GLD, TLT
+  weight: 0.25
+  sma_window: 10       # 10-period trend filter (monthly bars)
+  vol_window: 12       # trailing vol window
+  target_vol: 0.10     # risk-parity target per asset
+  weight_cap: 1.5      # max weight per satellite asset
+  portfolio_leverage_cap: 2.0
+  periods_per_year: 12 # monthly data (use 252 for daily on the VPS)
+
+paths:
+  db: data/paper.db
+
+telegram:               # optional; reuses the bot token. Blank = disabled.
+  bot_token: ${TELEGRAM_BOT_TOKEN}
+  chat_id: ${TELEGRAM_CHAT_ID}

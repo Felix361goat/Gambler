@@ -22,3 +22,6 @@ __pycache__/
 
 # fun challenge runtime state
 fun-challenge/challenge.json
+
+# paper harness runtime state
+paper/data/
