@@ -19,3 +19,6 @@ matched-betting/data/
 
 __pycache__/
 *.pyc
+
+# fun challenge runtime state
+fun-challenge/challenge.json
