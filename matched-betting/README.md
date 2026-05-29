@@ -7,29 +7,35 @@ matter — you keep the bonus. Target: **€1–2k** from sign-up offers.
 > ⚠️ The software **computes** what to do. **You place every bet manually**
 > (bookies ban automation). Nothing here ever logs into a bookmaker account.
 
-## The one dependency
-You must be able to **lay** on a betting exchange from Austria. Betfair is
-restricted in AT → use **Smarkets** (or Matchbook). Confirm you can fund it and
-place a small lay with liquidity before working real offers.
+## ⚠️ Austria: no betting exchange → use DUTCHING
+Betfair, Smarkets **and** Matchbook are all **restricted in Austria** (verified
+2026). So you can't "lay" on an exchange. Instead you **dutch**: hedge by
+**backing the opposite outcome at a second bookmaker** on a 2-outcome market
+(tennis, over/under, both-teams-to-score). Retention is ~75–80% — almost as good
+as an exchange. Use the `dcalc` / `dlog-*` commands below.
+
+(The exchange commands `calc` / `log-*` remain for users in countries that
+do have an exchange.)
 
 ## Install
 ```bash
 pip install pyyaml          # only hard dependency; gspread optional for Sheets
 ```
 
-## The loop (run from inside this folder)
+## The loop — AUSTRIA / dutching (run from inside this folder)
 ```bash
-python3 workflow.py seed       # load offers.yaml into the ledger (once)
-python3 workflow.py next       # what to do next
-# size the bet the tool tells you to place:
-python3 workflow.py calc --type qualifying --back-stake 50 --back-odds 3.0 --lay-odds 3.05
-# place it at the bookie + lay on Smarkets, then record it:
-python3 workflow.py log-qualifying 1 --event "Bayern v Koeln" --back-odds 3.0 --back-stake 50 --lay-odds 3.05
-# after the bonus lands, place + lay the free bet, then:
-python3 workflow.py log-freebet 1 --event "Real v Sevilla" --back-odds 6.0 --lay-odds 6.1
+python3 workflow.py seed        # load offers.yaml into the ledger (once)
+python3 workflow.py next        # what to do next
+# size the qualifying bet (back at bookie A, back the OPPOSITE at bookie B):
+python3 workflow.py dcalc --type qualifying --back-stake 25 --back-odds 2.10 --hedge-odds 2.05
+# place both, then record:
+python3 workflow.py dlog-qualifying 1 --event "Tennis A v B" --back-odds 2.10 --back-stake 25 --hedge-odds 2.05
+# after the bonus lands, dutch the free bet (high odds at A, hedge opposite at B):
+python3 workflow.py dlog-freebet 1 --event "Over/Under X" --back-odds 4.0 --hedge-odds 1.36
 python3 workflow.py status      # running total + progress bar to €1,500
 python3 workflow.py export      # CSV (+ Google Sheet if configured)
 ```
+*(Have an exchange? Use `calc` / `log-qualifying` / `log-freebet` with `--lay-odds` instead.)*
 
 ## How it works
 - **`calculator.py`** — back/lay math. Equalises both outcomes so profit is the

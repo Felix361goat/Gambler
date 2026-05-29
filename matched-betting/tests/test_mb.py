@@ -43,6 +43,21 @@ def test_lay_stake_positive():
     assert r.lay_stake > 0 and r.liability > 0
 
 
+def test_dutch_freebet_balanced():
+    """Dutching a free bet at a 2nd bookmaker equalises both outcomes."""
+    r = calculator.dutch(50, 4.0, 1.36, bet_type="freebet")
+    assert approx(r.profit_if_back_wins, r.profit_if_hedge_wins)
+    assert 70 <= r.retention_pct <= 85
+    assert r.hedge_stake > 0
+
+
+def test_dutch_qualifying_small_cost():
+    """A dutched qualifying bet on tight 2-way odds is near break-even."""
+    r = calculator.dutch(25, 2.05, 1.98, bet_type="qualifying")
+    assert approx(r.profit_if_back_wins, r.profit_if_hedge_wins)
+    assert r.total_outlay > 0
+
+
 def test_ledger_seed_and_summary():
     with tempfile.TemporaryDirectory() as d:
         lg = Ledger(os.path.join(d, "t.db"))

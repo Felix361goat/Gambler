@@ -292,6 +292,57 @@ def _export_gsheet(cfg, cols, rows):
 
 
 # --------------------------------------------------------------------------
+# --------------------------------------------------------------------------
+# AUSTRIA MODE: dutching (hedge at a 2nd bookmaker, no exchange)
+# --------------------------------------------------------------------------
+def cmd_dcalc(args, cfg, ledger):
+    r = calculator.dutch(args.back_stake, args.back_odds, args.hedge_odds,
+                         bet_type=args.type)
+    kind = "FREE BET" if args.type == "freebet" else "qualifying"
+    print(f"\n[{kind} — dutching] back €{args.back_stake:.2f} @ {args.back_odds} "
+          f"(bookie A)")
+    print(f"  -> BACK €{r.hedge_stake:.2f} on the OPPOSITE outcome @ "
+          f"{args.hedge_odds} (bookie B)")
+    print(f"  cash you put down at B: €{r.total_outlay:.2f}")
+    print(f"  A wins: {r.profit_if_back_wins:+.2f} | B wins: "
+          f"{r.profit_if_hedge_wins:+.2f}")
+    tag = f"  ({r.retention_pct}% of free bet)" if args.type == "freebet" else ""
+    print(f"  LOCKED: €{r.locked_profit:+.2f}{tag}\n")
+    return r
+
+
+def _log_dutch(ledger, offer_id, leg, stake, args):
+    bt = "freebet" if leg == "freebet" else "qualifying"
+    r = calculator.dutch(stake, args.back_odds, args.hedge_odds, bet_type=bt)
+    r.lay_stake = r.hedge_stake      # adapt DutchResult to the ledger's fields
+    r.liability = r.total_outlay
+    r.lay_odds = args.hedge_odds
+    ledger.add_bet(offer_id, leg, r, event=args.event, back_odds=args.back_odds,
+                   back_stake=stake, commission=0.0)
+    return r
+
+
+def cmd_dlog_qualifying(args, cfg, ledger):
+    if not ledger.get_offer(args.offer_id):
+        print(f"No offer #{args.offer_id}"); return
+    r = _log_dutch(ledger, args.offer_id, "qualifying", args.back_stake, args)
+    ledger.set_status(args.offer_id, "in_progress")
+    print(f"Logged dutched qualifying for #{args.offer_id}: BACK opposite "
+          f"€{r.hedge_stake:.2f} @ {args.hedge_odds} (cost €{r.locked_profit:+.2f}).")
+
+
+def cmd_dlog_freebet(args, cfg, ledger):
+    o = ledger.get_offer(args.offer_id)
+    if not o:
+        print(f"No offer #{args.offer_id}"); return
+    stake = args.back_stake or o["bonus_eur"]
+    r = _log_dutch(ledger, args.offer_id, "freebet", stake, args)
+    ledger.set_status(args.offer_id, "done")
+    print(f"Logged dutched free bet for #{args.offer_id}: BACK opposite "
+          f"€{r.hedge_stake:.2f} @ {args.hedge_odds} -> LOCKED "
+          f"€{r.locked_profit:+.2f}. Offer DONE ✅")
+
+
 def build_parser():
     p = argparse.ArgumentParser(description="Matched-betting dynamic workflow")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -325,6 +376,28 @@ def build_parser():
     fb.add_argument("--back-stake", type=float, default=0.0,
                     help="defaults to the offer's bonus amount")
     fb.add_argument("--lay-odds", type=float, required=True)
+
+    # --- Austria mode: dutching (hedge at a 2nd bookmaker, no exchange) ---
+    dc = sub.add_parser("dcalc")
+    dc.add_argument("--type", choices=["qualifying", "freebet"], required=True)
+    dc.add_argument("--back-stake", type=float, required=True)
+    dc.add_argument("--back-odds", type=float, required=True)
+    dc.add_argument("--hedge-odds", type=float, required=True)
+
+    dq = sub.add_parser("dlog-qualifying")
+    dq.add_argument("offer_id", type=int)
+    dq.add_argument("--event", default="")
+    dq.add_argument("--back-odds", type=float, required=True)
+    dq.add_argument("--back-stake", type=float, required=True)
+    dq.add_argument("--hedge-odds", type=float, required=True)
+
+    dfb = sub.add_parser("dlog-freebet")
+    dfb.add_argument("offer_id", type=int)
+    dfb.add_argument("--event", default="")
+    dfb.add_argument("--back-odds", type=float, required=True)
+    dfb.add_argument("--back-stake", type=float, default=0.0,
+                     help="defaults to the offer's bonus amount")
+    dfb.add_argument("--hedge-odds", type=float, required=True)
     return p
 
 
@@ -332,6 +405,8 @@ DISPATCH = {
     "seed": cmd_seed, "run": cmd_run, "status": cmd_status, "next": cmd_next,
     "calc": cmd_calc, "start": cmd_start, "log-qualifying": cmd_log_qualifying,
     "log-freebet": cmd_log_freebet, "export": cmd_export,
+    "dcalc": cmd_dcalc, "dlog-qualifying": cmd_dlog_qualifying,
+    "dlog-freebet": cmd_dlog_freebet,
 }
 
 
