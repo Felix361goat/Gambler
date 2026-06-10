@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reim-Tool — Afroswing Edition</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="container">
+    <header>
+      <h1>REIM<span class="accent">·</span>TOOL</h1>
+      <p class="tagline">UK Afroswing Vibes · Deutsch × English · live generiert</p>
+    </header>
+
+    <section class="eingabe-bereich">
+      <textarea
+        id="eingabe"
+        rows="2"
+        maxlength="500"
+        placeholder="Wort, Phrase oder ganze Line eingeben … z.B. „Ich zähl das Paper in der Nacht“"
+      ></textarea>
+
+      <div class="kategorie-buttons" id="kategorien">
+        <button class="kat-btn aktiv" data-kat="mehrsilbig">Mehrsilbig</button>
+        <button class="kat-btn aktiv" data-kat="doppelreime">Doppelreime</button>
+        <button class="kat-btn aktiv" data-kat="assonanzen">Assonanzen</button>
+        <button class="kat-btn aktiv" data-kat="reineReime">Reine Reime</button>
+      </div>
+
+      <div class="aktionen">
+        <button id="los" class="primary">Reime holen</button>
+        <button id="nochmal" class="secondary" disabled>↻ Nochmal</button>
+      </div>
+    </section>
+
+    <div id="status" class="status" hidden></div>
+
+    <section id="ergebnisse" class="ergebnisse"></section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -11,5 +11,6 @@ betting-bot/data/*.db
 betting-bot/data/*.log
 betting-bot/*.pyc
 .env
+reim-tool/node_modules/
 google_credentials.json
 betting-bot/tests/__pycache__/

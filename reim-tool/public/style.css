@@ -1,0 +1,228 @@
+/* Dunkles Studio-Design — passt neben FL Studio */
+
+:root {
+  --bg: #15171c;
+  --bg-panel: #1d2026;
+  --bg-card: #23262e;
+  --border: #2e323b;
+  --text: #e8e6e3;
+  --text-dim: #9094a0;
+  --accent: #ff8c3a;       /* warmes Orange — Studio-Peak-Meter-Vibe */
+  --accent-soft: #ffb37a;
+  --gruen: #7ed957;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+}
+
+.container {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 24px 16px 80px;
+}
+
+header { text-align: center; margin-bottom: 28px; }
+
+h1 {
+  font-size: 2.4rem;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+}
+
+.accent { color: var(--accent); }
+
+.tagline {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  margin-top: 4px;
+}
+
+/* --- Eingabe --- */
+
+.eingabe-bereich {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px;
+}
+
+textarea {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  font-size: 1.15rem;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+}
+
+textarea:focus { border-color: var(--accent); }
+
+.kategorie-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.kat-btn {
+  background: var(--bg);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.kat-btn.aktiv {
+  background: rgba(255, 140, 58, 0.15);
+  color: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.aktionen { display: flex; gap: 10px; }
+
+button.primary, button.secondary {
+  flex: 1;
+  padding: 14px;
+  border-radius: 10px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s;
+}
+
+button.primary {
+  background: var(--accent);
+  color: #1a1206;
+}
+
+button.primary:hover { background: var(--accent-soft); }
+
+button.secondary {
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+button.secondary:hover:not(:disabled) { border-color: var(--accent); }
+
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* --- Status / Fehler --- */
+
+.status {
+  margin-top: 18px;
+  padding: 14px;
+  border-radius: 10px;
+  text-align: center;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.status.fehler {
+  border-color: #d9534f;
+  color: #f0a09e;
+}
+
+/* Lade-Animation: pulsierende Peak-Meter-Balken */
+.lade-balken {
+  display: inline-flex;
+  gap: 4px;
+  align-items: flex-end;
+  height: 22px;
+  margin-right: 10px;
+  vertical-align: middle;
+}
+
+.lade-balken span {
+  width: 5px;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: pump 0.8s ease-in-out infinite;
+}
+
+.lade-balken span:nth-child(1) { height: 10px; animation-delay: 0s; }
+.lade-balken span:nth-child(2) { height: 18px; animation-delay: 0.15s; }
+.lade-balken span:nth-child(3) { height: 14px; animation-delay: 0.3s; }
+.lade-balken span:nth-child(4) { height: 20px; animation-delay: 0.45s; }
+
+@keyframes pump {
+  0%, 100% { transform: scaleY(0.5); }
+  50% { transform: scaleY(1); }
+}
+
+/* --- Ergebnisse --- */
+
+.ergebnisse { margin-top: 24px; }
+
+.kategorie-block { margin-bottom: 26px; }
+
+.kategorie-block h2 {
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--accent-soft);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+  margin-bottom: 12px;
+}
+
+.karten {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.karte {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  transition: border-color 0.15s;
+}
+
+.karte:hover { border-color: var(--accent); }
+
+.karte .wort {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.karte .silben {
+  display: inline-block;
+  font-size: 0.75rem;
+  color: var(--gruen);
+  background: rgba(126, 217, 87, 0.1);
+  border-radius: 6px;
+  padding: 2px 8px;
+  margin-bottom: 8px;
+}
+
+.karte .flow {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+/* --- Mobil --- */
+
+@media (max-width: 560px) {
+  h1 { font-size: 1.7rem; }
+  .karten { grid-template-columns: 1fr; }
+  .aktionen { flex-direction: column; }
+}
