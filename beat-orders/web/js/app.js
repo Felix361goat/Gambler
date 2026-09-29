@@ -6,6 +6,8 @@ import {
   createExpertOrder, createBossOrder, verdictReply, isFan, EXPERT_MIN, vocalBrief, songPrompt,
 } from './generator.js';
 import { titleFor, tipOfDay, questsForWeek } from './motivation.js';
+import { FAMILIES } from './genres.js';
+import { PLATFORMS, careerTitle, fmtNum } from './careers.js';
 import { SHOP, ITEMS, TROPHIES, TROPHY_BONUS, orderCoins, DEFAULT_PROFILE, carSvg, EXPERT_UNLOCK_VALUE, BOSS_UNLOCK } from './shop.js';
 import {
   ensureAudioGraph, resumeAudio, createVisualizer, startRecording, stopRecording, isRecording,
@@ -33,6 +35,8 @@ const state = {
   shopTab: 'frames',
   sessions: [], // finished studio sessions { start, end, minutes, orderId }
   activeSession: null, // { start, orderId }
+  career: { stats: {}, claimed: [] }, // stats[platform] = [{ t, v }], claimed = [{ id, reward }]
+  lexFam: 'Alle',
 };
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -113,7 +117,8 @@ function progress() {
     clientsTotal: CUSTOMERS.length,
   };
   const trophies = TROPHIES.map((t) => { const [cur, goal] = t.check(tstats); return { ...t, cur: Math.min(cur, goal), goal, won: cur >= goal }; });
-  const questCoins = (state.profile.claims || []).reduce((a, c) => a + c.reward, 0);
+  const questCoins = (state.profile.claims || []).reduce((a, c) => a + c.reward, 0)
+    + (state.career.claimed || []).reduce((a, c) => a + c.reward, 0);
   const earned = done.reduce((a, o) => a + orderCoins(o, thrFor(o)), 0) + trophies.filter((t) => t.won).length * TROPHY_BONUS + questCoins;
   const spent = state.profile.owned.reduce((a, id) => a + (ITEMS[id]?.price || 0), 0);
   return { ...info, title: titleFor(info.level), sessionMin, streak, skills, trophies, coins: earned - spent, delivered: tstats.delivered, served: new Set(done.map((o) => o.customerId).filter(Boolean)) };
@@ -494,9 +499,12 @@ function updateBadge() {
 // ------------------------------------------------------------ rendering --
 
 function render() {
-  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === state.tab));
+  const tabFor = state.tab === 'settings' ? 'profile' : state.tab;
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === tabFor));
   if (state.tab === 'orders') view.innerHTML = renderOrders();
   else if (state.tab === 'library') view.innerHTML = renderLibrary();
+  else if (state.tab === 'lexikon') view.innerHTML = renderLexikon();
+  else if (state.tab === 'career') view.innerHTML = renderCareer();
   else if (state.tab === 'profile') view.innerHTML = renderProfile();
   else view.innerHTML = renderSettings();
   renderMiniPlayer();
@@ -577,6 +585,7 @@ function renderOrders() {
     <p class="subtitle">Hi${name} 👋 Diese Woche: ${doneWeek}/${state.settings.ordersPerWeek} erledigt</p>
     ${progressCard()}
     ${recapCard()}
+    ${careerDue() && state.orders.some((o) => o.status === 'delivered') ? '<button class="hint glass" data-action="tab" data-tab="career" style="width:100%;text-align:left"><div style="font-size:24px">📈</div><div><b>Karriere-Update fällig</b>Trag deine Spotify-, TikTok- und Insta-Zahlen ein.</div></button>' : ''}
     ${hasVip() ? `<div class="vip-hype glass"><span class="mini-avatar big">${vipAvatar()}</span><div class="bubble them">${esc(VIP_LINES[new Date().getDate() % VIP_LINES.length])}</div></div>` : ''}
 
     ${toReview.length ? `<div class="section-title" style="margin-top:6px">Nochmal anhören <small>${toReview.length}</small></div>
@@ -802,7 +811,10 @@ function renderProfile() {
   const homes = state.profile.owned.map((id) => ITEMS[id]).filter((i) => i?.cat === 'homes');
   const chips = (list, cls) => list.map((x) => `<span class="pill ${cls}">${esc(x)}</span>`).join('');
   return `
-    <div class="profile-head">
+    <div class="header-row" style="justify-content:flex-end;margin-top:8px">
+      <button class="icon-btn glass" data-action="tab" data-tab="settings" aria-label="Einstellungen"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1" /></svg></button>
+    </div>
+    <div class="profile-head" style="margin-top:4px">
       <div class="profile-banner ${state.profile.banner || 'banner-none'}"></div>
       <button class="profile-pfp" data-action="pfp" aria-label="Profilbild ändern">${avatarHtml()}</button>
     </div>
@@ -926,6 +938,126 @@ function renderCustomerSheet(c) {
   `;
 }
 
+// ---- genre lexicon ------------------------------------------------------------
+function genreGuide(name) {
+  const g = GENRES[name];
+  if (!g) return '';
+  const row = (k, v) => (v ? `<div class="g-row"><span>${k}</span><b>${esc(v)}</b></div>` : '');
+  return `<div class="g-body">
+    ${row('Tempo', `${g.bpm[0]}–${g.bpm[1]} BPM`)}
+    ${row('Tonarten', (g.keys || []).join(', '))}
+    ${row('🥁 Snare/Clap', g.snare)}
+    ${row('Hi-Hats', g.hats)}
+    ${row('808/Bass', g.bass)}
+    ${row('Aufbau & Übergänge', g.arr)}
+    ${g.tip ? `<div class="g-tip">💡 ${esc(g.tip)}</div>` : ''}
+    <div class="g-inst">${(g.inst || []).map((i) => `<span class="pill">${esc(i)}</span>`).join('')}</div>
+    ${g.refs?.length ? `<div class="g-refs">🎧 ${esc(g.refs.join(' · '))}</div>` : ''}
+  </div>`;
+}
+
+const shortText = (t, n) => (t.length <= n ? t.trim() : `${t.slice(0, t.lastIndexOf(' ', n)).trim()} …`);
+
+function renderLexikon() {
+  const fam = state.lexFam;
+  const names = Object.keys(GENRES).filter((n) => fam === 'Alle' || GENRES[n].fam === fam);
+  const done = {};
+  for (const o of state.orders) if (!o.deleted && o.status === 'delivered') done[o.genre] = (done[o.genre] || 0) + 1;
+  return `
+    <h1 class="large-title">Lexikon</h1>
+    <p class="subtitle">${Object.keys(GENRES).length} Genres – BPM, Snare, typische Sounds. Tipp drauf für den Spickzettel.</p>
+    <div class="chips">${['Alle', ...FAMILIES].map((f) => `<button class="chip glass ${fam === f ? 'on' : ''}" data-action="lex-fam" data-v="${f}">${f}</button>`).join('')}</div>
+    <div class="group glass">${names.map((n) => `<button class="row tap" data-action="open-genre" data-v="${esc(n)}">
+      <span class="label"><b style="font-weight:600">${esc(n)}</b><br><small class="muted">${GENRES[n].bpm[0]}–${GENRES[n].bpm[1]} BPM · ${esc(shortText((GENRES[n].snare || '').split('(')[0], 44))}</small></span>
+      <span class="value">${done[n] ? `✓ ${done[n]}` : ''}</span>${ICON.chev}</button>`).join('')}</div>
+    <p class="footnote">✓ = so oft hast du das Genre schon abgegeben. Die Infos sind ein Startpunkt – dein Ohr und YouTube-Tutorials machen den Rest.</p>`;
+}
+
+function renderGenreSheet(name) {
+  return `<div class="sheet-head"><button class="btn plain" data-action="close-sheet">Schließen</button><h2>${esc(name)}</h2><span style="width:80px"></span></div>
+    <div class="guide glass" style="margin-top:12px">${genreGuide(name)}</div>
+    <button class="btn" style="margin-top:14px" data-action="request-genre" data-v="${esc(name)}">Auftrag in diesem Genre anfordern</button>`;
+}
+
+// ---- career -------------------------------------------------------------------
+const careerLatest = (id) => { const h = state.career.stats[id] || []; return h.length ? h[h.length - 1] : null; };
+function careerDue() {
+  return Object.keys(PLATFORMS).some((id) => { const l = careerLatest(id); return !l || Date.now() - l.t > 30 * DAY; });
+}
+function sparkline(hist, color) {
+  if (!hist || hist.length < 2) return '';
+  const vals = hist.map((x) => x.v), max = Math.max(...vals), min = Math.min(...vals);
+  const pts = vals.map((v, i) => `${(i / (vals.length - 1)) * 100},${28 - ((v - min) / (max - min || 1)) * 26}`).join(' ');
+  return `<svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none" style="stroke:${color};fill:none;stroke-width:2"><polyline points="${pts}" /></svg>`;
+}
+function renderCareer() {
+  const sp = careerLatest('spotify')?.v || 0;
+  const title = careerTitle(sp);
+  const claimed = new Set(state.career.claimed.map((c) => c.id));
+  const exclusive = Object.values(PLATFORMS).flatMap((P) => P.steps.filter((s) => s[3]?.item).map((s) => ({ item: ITEMS[s[3].item], need: `${fmtNum(s[0])} ${P.unit}` })));
+  return `
+    <h1 class="large-title">Karriere</h1>
+    <p class="subtitle">Langfristige Ziele – von den ersten Hörern bis zum Established Artist.</p>
+    <div class="career-hero glass">
+      <div class="ch-title">🎤 ${esc(title)}</div>
+      <div class="muted">${sp ? `${fmtNum(sp)} monatliche Hörer auf Spotify` : 'Trag deine ersten Zahlen ein – auch 0 ist ein Start.'}</div>
+    </div>
+    ${careerDue() ? '<div class="hint glass"><div style="font-size:24px">📈</div><div><b>Monats-Update</b>Trag deine aktuellen Zahlen ein – jeder Meilenstein bringt Coins.</div></div>' : ''}
+    ${Object.entries(PLATFORMS).map(([id, P]) => {
+      const hist = state.career.stats[id] || [];
+      const cur = careerLatest(id)?.v ?? 0;
+      const monthAgo = [...hist].reverse().find((x) => x.t <= Date.now() - 28 * DAY);
+      const delta = monthAgo ? cur - monthAgo.v : null;
+      const next = P.steps.find((s) => s[0] > cur);
+      const prev = [...P.steps].reverse().find((s) => s[0] <= cur);
+      const frac = next ? (cur - (prev?.[0] || 0)) / (next[0] - (prev?.[0] || 0)) : 1;
+      return `<div class="platform glass">
+        <div class="pf-top"><span class="pf-icon" style="background:${P.color}">${P.icon}</span>
+          <div class="pf-main"><b>${P.label}</b><span class="muted">${P.unit}</span></div>
+          <div class="pf-num"><b>${fmtNum(cur)}</b>${delta != null ? `<small class="${delta >= 0 ? 'up' : 'down'}">${delta >= 0 ? '+' : '−'}${fmtNum(Math.abs(delta))} / Monat</small>` : ''}</div></div>
+        ${sparkline(hist, P.color)}
+        ${next ? `<div class="pf-next"><span>Nächstes Ziel: <b>${fmtNum(next[0])}</b> – ${esc(next[1])}</span><span>+${next[2].toLocaleString('de-DE')} 🪙${next[3]?.item ? ' + 🎁' : ''}</span></div>
+          <div class="progress"><i style="width:${Math.round(Math.max(0.02, frac) * 100)}%;background:${P.color}"></i></div>` : '<div class="pf-next"><b>Alle Ziele erreicht. Legende. 👑</b></div>'}
+        <div class="btn-row"><button class="btn small" data-action="career-update" data-id="${id}">Zahl eintragen</button></div>
+        <details class="ladder"><summary>Alle ${P.steps.length} Meilensteine</summary>
+          ${P.steps.map((s) => `<div class="step ${claimed.has(`${id}:${s[0]}`) ? 'done' : ''}"><span>${claimed.has(`${id}:${s[0]}`) ? '✅' : '🔒'}</span>
+            <b>${fmtNum(s[0])}</b><span class="st-name">${esc(s[1])}</span><span class="st-rew">+${s[2].toLocaleString('de-DE')} 🪙${s[3]?.item ? ` · 🎁 ${esc(ITEMS[s[3].item].name)}` : ''}</span></div>`).join('')}
+        </details>
+      </div>`;
+    }).join('')}
+    <div class="section-title">🎁 Exklusive Belohnungen</div>
+    <div class="studio glass">${exclusive.map(({ item, need }) => {
+      const own = state.profile.owned.includes(item.id);
+      const icon = item.emoji || (item.cat === 'frames' ? '🔵' : '🎪');
+      return `<div class="studio-item ${own ? '' : 'locked-item'}"><span>${own ? icon : '🔒'}</span><small>${esc(item.name)}${own ? '' : `<br>ab ${esc(need)}`}</small>
+        ${own && (item.cat === 'frames' || item.cat === 'banners') ? `<button class="btn plain small" data-action="equip" data-id="${item.id}">${state.profile.frame === item.id || state.profile.banner === item.id ? 'Ablegen' : 'Anlegen'}</button>` : ''}</div>`;
+    }).join('')}</div>
+    <p class="footnote">Ehrlich eintragen – die Coins sind nur was wert, wenn die Zahlen echt sind. 💪</p>`;
+}
+
+async function careerUpdate(id) {
+  const P = PLATFORMS[id];
+  const cur = careerLatest(id)?.v ?? 0;
+  const raw = prompt(`${P.label}: ${P.unit} aktuell?`, String(cur || ''));
+  if (raw == null) return;
+  const v = Math.max(0, Math.round(Number(String(raw).replace(/[^\d]/g, '')) || 0));
+  const before = progress();
+  state.career.stats[id] = [...(state.career.stats[id] || []), { t: Date.now(), v }];
+  const claimed = new Set(state.career.claimed.map((c) => c.id));
+  const fresh = P.steps.filter((s) => v >= s[0] && !claimed.has(`${id}:${s[0]}`));
+  for (const s of fresh) {
+    state.career.claimed.push({ id: `${id}:${s[0]}`, reward: s[2] });
+    if (s[3]?.item && !state.profile.owned.includes(s[3].item)) state.profile.owned = [...state.profile.owned, s[3].item];
+  }
+  await db.set('career', state.career);
+  await db.set('profile', state.profile);
+  if (fresh.length) {
+    rewardToast(before, `🚀 ${fresh.length} ${fresh.length === 1 ? 'Meilenstein' : 'Meilensteine'} erreicht: ${fresh[fresh.length - 1][1]}`);
+    fresh.filter((s) => s[3]?.item).forEach((s, i) => setTimeout(() => toast(`🎁 Exklusiv freigeschaltet: ${ITEMS[s[3].item].name}`), 3000 * (i + 1)));
+  } else toast(`${P.label} aktualisiert ✅`);
+  render();
+}
+
 function renderShopSheet() {
   const p = progress();
   const tab = state.shopTab;
@@ -986,7 +1118,8 @@ function renderSettings() {
       ${stepper(`type:${k}`, 0, 4)}</div>`).join('');
 
   return `
-    <h1 class="large-title">Einstellungen</h1>
+    <button class="btn plain small" data-action="tab" data-tab="profile" style="padding:0;margin-top:18px">‹ Profil</button>
+    <h1 class="large-title" style="margin-top:4px">Einstellungen</h1>
     <p class="subtitle">Passe die Aufträge an deinen Alltag an.</p>
 
     <div class="group-title">Profil</div>
@@ -1118,6 +1251,7 @@ function renderSheet() {
   else if (s.kind === 'own') html = renderOwnSheet();
   else if (s.kind === 'shop') html = renderShopSheet();
   else if (s.kind === 'customer') html = renderCustomerSheet(CUSTOMER_BY_ID[s.id]);
+  else if (s.kind === 'genre') html = renderGenreSheet(s.id);
   const oldVideo = $('#sheet video');
   if (oldVideo) oldVideo.remove(); // detach so it keeps playing
   $('#sheet').innerHTML = `<div class="grabber"></div>${html}`;
@@ -1157,7 +1291,7 @@ function renderOrderSheet(o) {
   ].filter(Boolean);
   // Odd number of tiles → stretch the last one; instruments always get a full row.
   if (specs.length % 2) specs[specs.length - 1].wide = true;
-  if (o.instruments?.length) specs.push(Object.assign(['Instrumente', o.instruments.join(', ')], { wide: true }));
+  if (o.instruments?.length) specs.push(Object.assign([o.tier ? 'Instrumente' : '🎛️ Pflicht-Sounds (Challenge)', o.instruments.join(', ')], { wide: true }));
   if (o.refs?.length) specs.push(Object.assign(['🎧 Referenz', o.refs.join(', ')], { wide: true }));
 
   return `
@@ -1198,6 +1332,7 @@ function renderOrderSheet(o) {
     <div class="specs">
       ${specs.map((sp) => `<div class="spec ${sp.wide ? 'wide' : ''}"><span>${sp[0]}</span><b>${esc(sp[1])}</b></div>`).join('')}
     </div>
+    ${GENRES[o.genre] ? `<details class="guide glass"><summary>📚 Genre-Guide: ${esc(o.genre)}</summary>${genreGuide(o.genre)}</details>` : ''}
 
     ${o.status === 'new' && (o.type === 'video' || o.type === 'vocals') ? `
       <button class="btn" data-action="accept" data-id="${o.id}">Los geht's ${T.icon}</button>
@@ -1764,6 +1899,14 @@ const actions = {
   'new-own': () => openSheet({ kind: 'own' }),
 
   'open-shop': () => openSheet({ kind: 'shop' }),
+  'lex-fam': (el) => { state.lexFam = el.dataset.v; render(); },
+  'open-genre': (el) => openSheet({ kind: 'genre', id: el.dataset.v }),
+  async 'request-genre'(el) {
+    const o = generateOrder(state.settings, { ...genOpts(), genre: el.dataset.v });
+    await receiveOrder(o);
+    openSheet({ kind: 'order', id: o.id });
+  },
+  'career-update': (el) => careerUpdate(el.dataset.id),
   'open-customer': (el) => openSheet({ kind: 'customer', id: el.dataset.id }),
   async 'lyrics-template'(el) {
     const o = state.orders.find((x) => x.id === el.dataset.id);
@@ -2035,6 +2178,7 @@ function setupNative() {
   App.addListener('backButton', () => {
     if (state.vizOpen) closeViz();
     else if (state.sheet) closeSheet();
+    else if (state.tab === 'settings') { state.tab = 'profile'; render(); }
     else if (state.tab !== 'orders') { state.tab = 'orders'; render(); }
     else App.minimizeApp();
   });
@@ -2056,8 +2200,11 @@ async function boot() {
   const oldGenres = state.settings.genres;
   state.settings.genreWeights = { ...DEFAULT_GENRE_WEIGHTS, ...(state.settings.genreWeights || {}) };
   // New taste profile (from your Spotify stats) → apply the new defaults once.
+  if ((state.settings.tasteVersion || 0) < 2) state.settings.genreWeights = { ...DEFAULT_GENRE_WEIGHTS };
   if ((state.settings.tasteVersion || 0) < TASTE_VERSION) {
-    state.settings.genreWeights = { ...DEFAULT_GENRE_WEIGHTS };
+    // v3: new genres (trap family, dancehall, FR/ES) – keep your own tweaks, add the rest.
+    state.settings.genreWeights = { ...DEFAULT_GENRE_WEIGHTS, ...state.settings.genreWeights };
+    state.settings.genreWeights.Dancehall = Math.max(2, state.settings.genreWeights.Dancehall ?? 0);
     state.settings.tasteVersion = TASTE_VERSION;
     await saveSettings();
   }
@@ -2071,6 +2218,7 @@ async function boot() {
   state.sessions = (await db.get('sessions')) || [];
   state.activeSession = (await db.get('activeSession')) || null;
   state.recapSeen = await db.get('recapSeen');
+  state.career = { stats: {}, claimed: [], ...((await db.get('career')) || {}) };
   state.profile = { ...DEFAULT_PROFILE, ...((await db.get('profile')) || {}) };
   const pfp = await db.getFile('pfp');
   if (pfp) state.pfpUrl = URL.createObjectURL(pfp.blob);

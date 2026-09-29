@@ -20,84 +20,27 @@ export const ORDER_TYPES = {
   video:        { label: 'Video / TikTok', short: 'Video', icon: '🎬', days: [5, 8], effort: 3, budget: [0, 0], manualOnly: true },
 };
 
-export const GENRES = {
-  'Trap':        { bpm: [130, 160], keys: ['C# Moll', 'F Moll', 'G# Moll', 'A Moll'], inst: ['808s', 'Hi-Hat Rolls', 'dunkle Pads', 'Glocken', 'Flöte'] },
-  'Drill':       { bpm: [138, 146], keys: ['F# Moll', 'D Moll', 'E Moll'], inst: ['Sliding 808s', 'Strings', 'Choir', 'Piano', 'Percs'] },
-  'Boom Bap':    { bpm: [84, 96], keys: ['A Moll', 'D Moll', 'Eb Dur'], inst: ['Sample-Chops', 'Vinyl Crackle', 'Upright Bass', 'Rhodes', 'Dusty Drums'] },
-  'R&B':         { bpm: [65, 95], keys: ['Db Dur', 'Ab Dur', 'Bb Moll'], inst: ['Rhodes', 'Gitarre', 'weiche Pads', 'Finger Snaps', 'Sub Bass'] },
-  'Afrobeats':   { bpm: [100, 115], keys: ['G Dur', 'A Moll', 'E Moll'], inst: ['Log Drum', 'Shaker', 'Gitarre', 'Marimba', 'Talking Drum'] },
-  'Lo-Fi':       { bpm: [70, 90], keys: ['F Dur', 'C Dur', 'E Moll'], inst: ['Piano', 'Tape Wobble', 'Jazz-Chords', 'Rain FX', 'Soft Kick'] },
-  'Pop':         { bpm: [95, 125], keys: ['C Dur', 'G Dur', 'F Dur'], inst: ['Synth Leads', 'Claps', 'Plucks', 'Akustikgitarre', 'Big Chorus'] },
-  'Deutschrap':  { bpm: [85, 150], keys: ['A Moll', 'C Moll', 'G Moll'], inst: ['Piano', '808s', 'Streicher', 'Vocal Chops', 'Hard Kicks'] },
-  'Phonk':       { bpm: [120, 140], keys: ['C# Moll', 'F Moll'], inst: ['Cowbell', 'Memphis Vocals', 'distorted 808', 'Drift FX'] },
-  'Jersey Club': { bpm: [135, 145], keys: ['E Moll', 'B Moll'], inst: ['Bed Squeaks', 'Kick Rolls', 'Vocal Chops', 'Synth Stabs'] },
-  'Dancehall':   { bpm: [90, 105], keys: ['G Moll', 'D Moll'], inst: ['Riddim Drums', 'Skank Guitar', 'Horns', 'Sub Bass'] },
-  'Hyperpop':    { bpm: [140, 170], keys: ['B Dur', 'E Dur'], inst: ['Supersaws', 'Pitched Vocals', 'Glitch FX', 'Distorted Drums'] },
-  // UK / Afro
-  'UK Afroswing': { bpm: [98, 110], keys: ['A Moll', 'F# Moll', 'C Moll', 'G Moll'], inst: ['Afro-Percs (Shaker, Congas)', 'gezupfte Gitarre', 'warme Keys', 'Dancehall-Snare', 'Vocal-Chops', 'runder Sub-Bass'] },
-  'UK Drill':    { bpm: [140, 144], keys: ['F# Moll', 'D Moll', 'C# Moll'], inst: ['Sliding 808s', 'Drill-Hi-Hats (Triolen)', 'dunkle Strings', 'Snare auf 3', 'Choir-Pads'] },
-  'UK Garage':   { bpm: [130, 136], keys: ['F Moll', 'A Moll'], inst: ['2-Step-Shuffle-Drums', 'Organ-Bass', 'gepitchte Vocal-Chops', 'Stabs'] },
-  'Grime':       { bpm: [138, 142], keys: ['E Moll', 'D Moll'], inst: ['eckige Square-Leads', 'Sub-Bass', 'Eski-Stabs', 'harte Snares'] },
-  'Amapiano':    { bpm: [110, 115], keys: ['A Moll', 'D Moll', 'F Dur'], inst: ['Log Drum', 'Shaker', 'jazzige Piano-Chords', 'weite Pads', 'Whistle'] },
-  'UK Rap':      { bpm: [136, 146], keys: ['C Moll', 'F Moll', 'G# Moll'], inst: ['Soul- oder Piano-Sample', 'harte 808 im Half-Time-Feel', 'UK-Drums mit Snare auf 3', 'Vocal-Chop', 'dunkle Strings'] },
-  'UK R&B':      { bpm: [95, 118], keys: ['Ab Dur', 'F Moll', 'Eb Dur'], inst: ['warme Rhodes', 'Afro-Percs', 'weiche Pads', 'gepitchte Vocal-Chops', 'runder Sub'] },
-  'Afro-Dancehall': { bpm: [95, 106], keys: ['G Moll', 'D Moll', 'A Moll'], inst: ['Dancehall-Riddim-Drums', 'Afro-Percs', 'Plucks/Marimba', 'Stabs', 'tiefer Sub'] },
-  // US sounds
-  'Detroit':     { bpm: [94, 104], keys: ['F Moll', 'C# Moll', 'G Moll'], inst: ['hüpfendes Offbeat-Piano', 'Clap auf 2 & 4', 'schnelle Hi-Hats', 'kurze 808 mit Glide'] },
-  'Jerk':        { bpm: [150, 168], keys: ['C Dur', 'A Moll', 'E Moll'], inst: ['luftige Bells/Plucks', 'Jersey-Kicks', 'schnelle Hi-Hats', 'verzerrte 808', 'Vocal-Chops'] },
-  'Plugg':       { bpm: [140, 160], keys: ['Db Dur', 'F Moll'], inst: ['verträumte Synth-Chords', 'lange Plugg-808', 'sparsame Hi-Hats', 'Glocken'] },
-  'Rage':        { bpm: [150, 165], keys: ['C# Moll', 'F Moll'], inst: ['verzerrte Supersaw-Leads', 'harte 808', 'Hi-Hat-Rolls', 'Sirenen-FX'] },
-  'NY Drill':    { bpm: [140, 145], keys: ['G Moll', 'D# Moll'], inst: ['Sliding 808s', 'gechoppte Vocal-Samples', 'Drill-Hats', 'dunkle Pianos'] },
-  'Memphis':     { bpm: [130, 145], keys: ['C# Moll', 'F Moll'], inst: ['Cowbell', 'Memphis-Vocal-Chops', 'dreckige Drums', 'Horror-Synths'] },
-  'West Coast':  { bpm: [88, 100], keys: ['A Moll', 'D Moll'], inst: ['G-Funk-Synth-Whine', 'Talkbox', 'funky Bass', 'Claps', 'Rhodes'] },
-  // Ab und zu was ganz anderes
-  'House':       { bpm: [120, 126], keys: ['A Moll', 'F Moll', 'C Dur'], inst: ['Four-on-the-floor-Kick', 'Offbeat-Hats', 'Piano-Stabs', 'Deep-Bass', 'Vocal-Chops'] },
-  'Indie House': { bpm: [118, 124], keys: ['D Dur', 'B Moll', 'E Moll'], inst: ['Gitarren-Riff', 'warme Synths', 'Four-on-the-floor', 'gefilterte Vocals'] },
-  'Indie Rock':  { bpm: [110, 150], keys: ['E Dur', 'A Dur', 'D Dur'], inst: ['verzerrte Gitarre', 'Live-Drums', 'Bassgitarre', 'Tambourin', 'Gang-Vocals'] },
-};
+import { GENRES } from './genres.js';
+export { GENRES };
 
 // How often each genre comes up (0 = aus … 4 = sehr oft). Tuned to your taste:
 // UK Afroswing + US sounds a lot, House/Indie ab und zu, Indie Rock selten.
 export const DEFAULT_GENRE_WEIGHTS = {
   // Kern – nach deinen Spotify-Stats (J Hus, JAE5, Kojo Funds, NSG, Skeete, Nines, Tera Kòrá …)
-  'UK Afroswing': 4, 'UK Rap': 3, 'Afrobeats': 3, 'Afro-Dancehall': 2, 'UK R&B': 2, 'UK Drill': 2, 'Amapiano': 2, 'Dancehall': 1,
-  // Amerikanisch – ab und zu, damit du alles durchmachst
-  'Detroit': 2, 'Jerk': 2, 'Plugg': 1, 'Rage': 1, 'NY Drill': 1, 'Trap': 1, 'Memphis': 1, 'West Coast': 1, 'Jersey Club': 1,
+  'UK Afroswing': 4, 'UK Rap': 3, 'Afrobeats': 3, 'Afro-Dancehall': 2, 'UK R&B': 2, 'UK Drill': 2, 'Amapiano': 2,
+  // Dancehall-inspiriert + FR/ES (Morad & Co.)
+  'Dancehall': 2, 'Dancehall-Trap': 2, 'Afro-Trap (FR)': 2, 'Maghreb-Urban': 2, 'French Drill': 1, 'Reggaeton': 1,
+  // Amerikanisch – die ganze Trap-Familie & Co., ab und zu
+  'Detroit': 2, 'Jerk': 2, 'Trap': 1, 'Dark Trap': 1, 'Melodic Trap': 1, 'Rage': 1, 'Plugg': 1, 'Pluggnb': 1, 'Trap Soul': 1,
+  'Memphis': 1, 'Drill': 1, 'NY Drill': 1, 'Sample Drill': 1, 'Jersey Club': 1, 'West Coast': 1, 'Ratchet': 1, 'Bay Area': 1, 'Boom Bap': 1,
   // Rest
-  'R&B': 1, 'Deutschrap': 1, 'Drill': 1, 'UK Garage': 1, 'Grime': 1, 'Boom Bap': 1, 'Lo-Fi': 1, 'Pop': 1, 'Phonk': 1, 'Hyperpop': 1,
+  'R&B': 1, 'Deutschrap': 1, 'UK Garage': 1, 'Grime': 1, 'Lo-Fi': 1, 'Pop': 1, 'Phonk': 1, 'Hyperpop': 1,
   // Ganz anders (Calvin Harris & Co.)
   'House': 1, 'Indie House': 1, 'Indie Rock': 1,
 };
-export const TASTE_VERSION = 2; // bump → defaults are re-applied once
+export const TASTE_VERSION = 3; // bump → new genres/defaults are merged in once
 
-// Reference artists per sound (your own favourites where they fit).
-export const GENRE_REFS = {
-  'UK Afroswing': ['J Hus', 'Kojo Funds', 'NSG', 'WSTRN', 'JAE5 (Prod.)', 'Keeya Keys'],
-  'UK Rap': ['Skeete', 'Nines', 'Gola Gianni', 'Chip', 'Pa Salieu'],
-  'Afrobeats': ['Tera Kòrá', 'Yung D3mz', 'Skiibii', 'Rema'],
-  'Afro-Dancehall': ['Skillibeng', 'Juls (Prod.)', 'Projexx', 'Valiant'],
-  'UK R&B': ['8synatra', 'Keys the Prince', 'Frisco'],
-  'UK Drill': ['Headie One', 'Digga D', 'Skeete'],
-  'Amapiano': ['Kabza De Small', 'Tyla', 'Uncle Waffles'],
-  'Dancehall': ['Skillibeng', 'Popcaan', 'Vybz Kartel'],
-  'Detroit': ['BabyTron', 'Veeze', 'Babyface Ray'],
-  'Jerk': ['Xaviersobased', 'Nettspend', 'OsamaSon'],
-  'Plugg': ['Summrs', 'Autumn!', 'Kankan'],
-  'Rage': ['Playboi Carti', 'Yeat', 'Ken Carson'],
-  'NY Drill': ['Pop Smoke', 'Kay Flock', 'Sheff G'],
-  'Trap': ['Future', 'Metro Boomin', 'Travis Scott'],
-  'Memphis': ['Three 6 Mafia', 'Duke Deuce'],
-  'West Coast': ['Dr. Dre', 'Snoop Dogg', 'Kendrick Lamar'],
-  'Jersey Club': ['Bandmanrill', 'Cookiee Kawaii'],
-  'R&B': ['Brent Faiyaz', 'SZA'],
-  'Deutschrap': ['Luciano', 'Pashanim'],
-  'UK Garage': ['Craig David', 'Conducta'],
-  'Grime': ['Skepta', 'Chip'],
-  'House': ['Calvin Harris', 'Fred again..'],
-  'Indie House': ['Jungle', 'Parcels'],
-  'Indie Rock': ['Arctic Monkeys', 'The Strokes'],
-};
-export const refsFor = (genre, n = 2) => [...(GENRE_REFS[genre] || [])].sort(() => Math.random() - 0.5).slice(0, n);
+export const refsFor = (genre, n = 2) => [...(GENRES[genre]?.refs || [])].sort(() => Math.random() - 0.5).slice(0, n);
 
 export const GENRE_LABELS = ['Aus', 'Selten', 'Ab und zu', 'Oft', 'Sehr oft'];
 // Steps are steep on purpose: "Selten" ≈ 1/16 of "Sehr oft".
@@ -423,7 +366,7 @@ function pickCustomer(history) {
 }
 export const isFan = (customerId, history) => history.some((o) => o.customerId === customerId && o.status === 'delivered' && ((o.review?.rating ?? 0) >= 8 || o.rating === 5));
 
-export function generateOrder(settings, { type, at, history = [] } = {}) {
+export function generateOrder(settings, { type, at, history = [], genre: forcedGenre } = {}) {
   const { declined } = analyze(history.slice(-40));
   const recent = [...history].filter((o) => o.type !== 'own' && o.type !== 'video' && !o.deleted)
     .sort((a, b) => b.createdAt - a.createdAt);
@@ -436,7 +379,7 @@ export function generateOrder(settings, { type, at, history = [] } = {}) {
   const freshGenres = genreNames.filter((g) => !recentGenres.includes(g));
   // Your strong genres (≥ 8 Ø) come up a bit more, declined ones less.
   const { genres: genreStats } = analyze(history);
-  const genre = theirs.length && Math.random() < 0.4
+  const genre = forcedGenre && GENRES[forcedGenre] ? forcedGenre : theirs.length && Math.random() < 0.4
     ? weightedPick(theirs, (g) => gweight(gw, g))
     : weightedPick(freshGenres.length ? freshGenres : genreNames,
       (g) => gweight(gw, g) * ((genreStats[g]?.avg ?? 0) >= 8 ? 1.3 : 1) / (1 + (declined.genres[g] || 0)));

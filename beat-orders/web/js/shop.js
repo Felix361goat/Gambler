@@ -1,3 +1,5 @@
+import { CAREER_ITEMS } from './careers.js';
+
 // Coins, shop items and trophies. Coins are *derived* from your orders
 // (like XP), so they stay correct after a sync or re-install; only what you
 // bought/equipped is stored (kv "profile").
@@ -110,9 +112,11 @@ export function carSvg(item) {
 export const EXPERT_UNLOCK_VALUE = 1300;
 export const BOSS_UNLOCK = { days: 330, delivered: 70, expertsAccepted: 1 };
 
-export const ITEMS = Object.fromEntries(
-  Object.entries(SHOP).flatMap(([cat, c]) => c.items.map((i) => [i.id, { ...i, cat }]))
-);
+export const ITEMS = {
+  ...Object.fromEntries(Object.entries(SHOP).flatMap(([cat, c]) => c.items.map((i) => [i.id, { ...i, cat }]))),
+  // Exclusive career rewards (not buyable).
+  ...Object.fromEntries(Object.entries(CAREER_ITEMS).map(([id, i]) => [id, { ...i, id, career: true }])),
+};
 
 // Trophies are earned automatically; each one also pays a coin bonus.
 // `check(stats)` returns [current, goal].
