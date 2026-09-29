@@ -17,7 +17,7 @@ import { CUSTOMERS, CUSTOMER_BY_ID, ARCHETYPES, EXPERTS, BOSS, avatarSvg, vipAva
 import { PEOPLE } from './people.js';
 import { cloud } from './cloud.js';
 import {
-  isNative, App, LocalNotifications, notifId, requestNotificationPermission, scheduleAll, shareBlob,
+  isNative, App, LocalNotifications, notifId, requestNotificationPermission, scheduleAll, shareBlob, writeTextFile, shareUri,
 } from './native.js';
 
 // ---------------------------------------------------------------- state --
@@ -557,7 +557,7 @@ function orderCard(o) {
       </div>
       ${status}
     </div>
-    ${o.type === 'own' ? '' : `<p class="order-brief">${esc(o.brief.replace(/\s*\n+\s*/g, ' '))}</p>`}
+    ${o.type === 'own' && !o.tier ? '' : `<p class="order-brief">${esc(o.brief.replace(/\s*\n+\s*/g, ' '))}</p>`}
     <div class="order-foot">
       <span class="pill ${due.cls}">${due.text}</span>
       ${o.rush && o.status !== 'delivered' ? '<span class="pill orange">⚡ Eilt · 2× Coins</span>' : ''}
@@ -594,6 +594,7 @@ function renderOrders() {
     ${progressCard()}
     ${recapCard()}
     ${careerDue() && state.orders.some((o) => o.status === 'delivered') ? '<button class="hint glass" data-action="tab" data-tab="career" style="width:100%;text-align:left"><div style="font-size:24px">📈</div><div><b>Karriere-Update fällig</b>Trag deine Spotify-, TikTok- und Insta-Zahlen ein.</div></button>' : ''}
+    ${backupDue() ? '<button class="hint glass" data-action="export" style="width:100%;text-align:left"><div style="font-size:24px">💾</div><div><b>Backup fällig</b>Sichere deine Beats, Coins & Karriere (1× im Monat) – tippen und in Google Drive speichern.</div></button>' : ''}
     ${hasVip() ? `<div class="vip-hype glass"><span class="mini-avatar big">${vipAvatar()}</span><div class="bubble them">${esc(VIP_LINES[new Date().getDate() % VIP_LINES.length])}</div></div>` : ''}
 
     ${toReview.length ? `<div class="section-title" style="margin-top:6px">Nochmal anhören <small>${toReview.length}</small></div>
@@ -616,6 +617,15 @@ function renderOrders() {
     ${done.length ? `<div class="section-title">Zuletzt abgegeben <small><button class="btn plain small" data-action="tab" data-tab="library">Alle</button></small></div>
       ${done.map(orderCard).join('')}` : ''}
   `;
+}
+
+// Monthly nudge to save a complete backup (not needed while cloud sync is on).
+function backupDue() {
+  if (state.cloudUser) return false;
+  const delivered = state.orders.filter((o) => visible(o) && o.status === 'delivered');
+  if (delivered.length < 3) return false;
+  const since = state.lastBackupAt || delivered.reduce((m, o) => Math.min(m, o.deliveredAt), Date.now());
+  return Date.now() - since > 30 * DAY;
 }
 
 function progressCard() {
@@ -1207,7 +1217,7 @@ function renderSettings() {
       <button class="row tap" data-action="import"><span class="label">Backup importieren</span>${ICON.chev}</button>
       <button class="row tap" data-action="reset"><span class="label" style="color:var(--red)">Alles lokal löschen</span></button>
     </div>
-    <p class="footnote" style="text-align:center;margin-top:24px">Beat Orders · v1.0</p>
+    <p class="footnote" style="text-align:center;margin-top:24px">Beat Orders · Version ${esc(state.appVersion || '1.0 (Web)')}</p>
   `;
 }
 
@@ -1270,9 +1280,31 @@ function closeSheet() {
   render();
 }
 
+// Write a lyrics/notes/lesson textarea into its order (saved right away or debounced).
+function flushText(el) {
+  const k = ['lyrics', 'note', 'lesson'].find((x) => el.dataset?.[x]);
+  const o = k && state.orders.find((x) => x.id === el.dataset[k]);
+  if (!o) return null;
+  if (k === 'lyrics') { if (o.lyrics === el.value) return null; o.lyrics = el.value; }
+  else if (k === 'note') { if (o.notes === el.value) return null; o.notes = el.value; }
+  else { if (!o.review || o.review.lesson === el.value) return null; o.review.lesson = el.value; }
+  return o;
+}
+const textTimers = {};
+function autosaveText(el, delay = 1200) {
+  const key = Object.entries(el.dataset).map((x) => x.join('=')).join();
+  clearTimeout(textTimers[key]);
+  textTimers[key] = setTimeout(() => { const o = flushText(el); if (o) saveOrder(o); }, delay);
+}
+
 function renderSheet() {
   const s = state.sheet;
   if (!s) return;
+  // Keep what you're typing (lyrics, notes …) when the sheet re-renders.
+  const act = document.activeElement;
+  const typingKey = act && $('#sheet').contains(act) && ['lyrics', 'note', 'lesson'].find((k) => act.dataset?.[k]);
+  const caret = typingKey ? [act.selectionStart, act.selectionEnd, act.scrollTop] : null;
+  if (typingKey) { const o = flushText(act); if (o) saveOrder(o); }
   let html = '';
   if (s.kind === 'order') html = renderOrderSheet(state.orders.find((o) => o.id === s.id));
   else if (s.kind === 'own') html = renderOwnSheet();
@@ -1282,6 +1314,10 @@ function renderSheet() {
   const oldVideo = $('#sheet video');
   if (oldVideo) oldVideo.remove(); // detach so it keeps playing
   $('#sheet').innerHTML = `<div class="grabber"></div>${html}`;
+  if (typingKey) {
+    const el = $(`#sheet textarea[data-${typingKey}="${act.dataset[typingKey]}"]`);
+    if (el) { el.focus({ preventScroll: true }); el.setSelectionRange(caret[0], caret[1]); el.scrollTop = caret[2]; }
+  }
   const slot = $('#videoSlot');
   if (slot && state.video) {
     const v = oldVideo && oldVideo.src === state.video.url ? oldVideo : Object.assign(document.createElement('video'), {
@@ -1344,7 +1380,7 @@ function renderOrderSheet(o) {
         <div class="thread-meta">${fmtDate(o.deliveredAt)}, ${fmtTime(o.deliveredAt)}</div>
         <div class="bubble them">${esc(o.reply)}<br><span class="stars">${'★'.repeat(o.rating || 0)}${'☆'.repeat(5 - (o.rating || 0))}</span></div>` : ''}
     </div>` : `<h2 style="font-size:28px;margin:12px 4px 4px">${esc(orderTitle(o))}</h2>
-      ${o.type === 'video' || o.type === 'vocals' ? `<div class="thread"><div class="bubble them">${T.icon} ${esc(o.brief)}</div></div>` : ''}`}
+      ${o.type === 'video' || o.type === 'vocals' || o.tier === 'event' ? `<div class="thread"><div class="bubble them">${o.tier ? '' : `${T.icon} `}${esc(o.brief)}</div></div>` : ''}`}
 
     ${o.challenge ? `<div class="challenge glass">
       <div class="challenge-ico">${MODE[o.challenge.mode]?.icon || '🎯'}</div>
@@ -1375,7 +1411,7 @@ function renderOrderSheet(o) {
         ? 'Noch nichts hochgeladen. Schneide das Video (z. B. CapCut) und lade es hier hoch.'
         : o.type === 'vocals' ? 'Nimm deine Vocals in FL Studio auf, misch sie und exportiere den ganzen Song (MP3/WAV).'
         : 'Noch nichts hochgeladen. Exportiere aus FL Studio (MP3/WAV) und lade die Datei hier hoch.'}</p>`}
-      <button class="btn ${subs.length ? 'secondary' : ''}" data-action="upload" data-id="${o.id}">⬆︎ ${o.type === 'vocal_chain' ? 'Preset / Demo hochladen' : o.type === 'video' ? 'Video hochladen' : o.type === 'vocals' ? 'Song mit Vocals hochladen' : o.type === 'release' ? 'Release-Song hochladen (gemischt & gemastert)' : 'Datei hochladen'}</button>
+      <button class="btn ${subs.length ? 'secondary' : ''}" data-action="upload" data-id="${o.id}">⬆︎ ${o.type === 'vocal_chain' ? 'Preset / Demo hochladen' : o.type === 'video' ? 'Video hochladen' : o.tier === 'event' ? 'Audio / Video hochladen' : o.type === 'vocals' ? 'Song mit Vocals hochladen' : o.type === 'release' ? 'Release-Song hochladen (gemischt & gemastert)' : 'Datei hochladen'}</button>
       ${!delivered ? (state.activeSession?.orderId === o.id
         ? `<button class="btn secondary" style="margin-top:10px" data-action="stop-session">⏹ Session beenden (${fmtClock(Date.now() - state.activeSession.start)})</button>`
         : state.activeSession ? '' : `<button class="btn secondary" style="margin-top:10px" data-action="start-session" data-id="${o.id}">⏱ Session für diesen Auftrag starten</button>`) : ''}
@@ -1670,6 +1706,26 @@ function pickFile(accept) {
   });
 }
 
+// Read a (big) text file line by line without loading it into one string.
+async function* readLines(file) {
+  const reader = file.stream().pipeThrough(new TextDecoderStream()).getReader();
+  let pieces = [];
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    let start = 0, i;
+    while ((i = value.indexOf('\n', start)) >= 0) {
+      pieces.push(value.slice(start, i));
+      yield pieces.join('');
+      pieces = [];
+      start = i + 1;
+    }
+    pieces.push(value.slice(start));
+  }
+  const rest = pieces.join('');
+  if (rest.trim()) yield rest;
+}
+
 function audioDuration(blob) {
   return new Promise((resolve) => {
     const a = new Audio();
@@ -1686,8 +1742,8 @@ function audioDuration(blob) {
 async function upload(orderId) {
   const o = state.orders.find((x) => x.id === orderId);
   if (!o) return;
-  const accept = o.type === 'vocal_chain' ? '' : o.type === 'video' ? 'video/*,.mp4,.mov,.webm'
-    : 'audio/*,.mp3,.wav,.m4a,.aac,.flac,.aif,.aiff,.ogg';
+  const AUDIO = 'audio/*,.mp3,.wav,.m4a,.aac,.flac,.aif,.aiff,.ogg', VIDEO = 'video/*,.mp4,.mov,.webm';
+  const accept = o.type === 'vocal_chain' ? '' : o.type === 'video' ? VIDEO : o.type === 'own' ? `${AUDIO},${VIDEO}` : AUDIO;
   const file = await pickFile(accept);
   if (!file) return;
   await addFileToOrder(o, file);
@@ -2027,52 +2083,85 @@ const actions = {
   },
 
   // Complete backup: orders, MP3s/videos, profile, career, sessions, settings.
+  // Format (v3): line 1 = JSON header with orders + settings, then one JSON
+  // line per file – written and read piece by piece, so even a huge library
+  // never has to fit into memory at once.
   async export() {
     toast('Backup wird erstellt …');
     const toB64 = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); r.readAsDataURL(blob); });
-    const files = [];
-    for (const f of await db.allFiles()) files.push({ id: f.id, data: await toB64(f.blob) });
     const kv = await db.allKv();
     const keep = Object.fromEntries(Object.entries(kv).filter(([k]) => [...STATE_KEYS, 'pendingOrder', 'nextOrderAt', 'hideInstallHint', 'stateUpdatedAt'].includes(k)));
-    const data = JSON.stringify({ app: 'beat-orders', version: 2, exportedAt: Date.now(), kv: keep, orders: state.orders, files });
-    const file = new File([data], `beat-orders-komplett-${new Date().toISOString().slice(0, 10)}.json`, { type: 'application/json' });
-    toast(`Backup fertig (${fmtSize(file.size)}) – jetzt sicher speichern, z. B. in Google Drive`);
-    if (isNative) {
-      try { await shareBlob(file, file.name, 'Beat Orders Backup'); } catch (e) { if (!/cancel/i.test(e.message)) toast(e.message); }
-      return;
+    const ids = (await db.allFiles()).map((f) => f.id); // (blobs are read one by one below)
+    const name = `beat-orders-komplett-${new Date().toISOString().slice(0, 10)}.json`;
+    async function* lines() {
+      yield `${JSON.stringify({ app: 'beat-orders', version: 3, exportedAt: Date.now(), kv: keep, orders: state.orders, fileCount: ids.length })}\n`;
+      for (const id of ids) {
+        const f = await db.getFile(id);
+        if (f?.blob) yield `${JSON.stringify({ file: id, data: await toB64(f.blob) })}\n`;
+      }
     }
-    if (navigator.canShare?.({ files: [file] })) {
-      try { await navigator.share({ files: [file] }); return; } catch {}
+    try {
+      if (isNative) {
+        const uri = await writeTextFile(name, lines());
+        state.lastBackupAt = Date.now(); await db.set('lastBackupAt', state.lastBackupAt);
+        toast(`Backup fertig (${ids.length} Dateien) – jetzt z. B. in Google Drive speichern`);
+        try { await shareUri(uri, 'Beat Orders Backup'); } catch (e) { if (!/cancel/i.test(e.message)) toast(e.message); }
+        render();
+        return;
+      }
+      const parts = [];
+      for await (const l of lines()) parts.push(l);
+      const file = new File(parts, name, { type: 'application/json' });
+      state.lastBackupAt = Date.now(); await db.set('lastBackupAt', state.lastBackupAt);
+      toast(`Backup fertig (${fmtSize(file.size)}) – jetzt sicher speichern, z. B. in Google Drive`);
+      render();
+      if (navigator.canShare?.({ files: [file] })) {
+        try { await navigator.share({ files: [file] }); return; } catch {}
+      }
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(file);
+      a.download = file.name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 20000);
+    } catch (e) {
+      toast(`Backup fehlgeschlagen: ${e.message}`);
     }
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(file);
-    a.download = file.name;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 20000);
   },
 
   async import() {
-    const file = await pickFile('application/json,.json');
+    const file = await pickFile(''); // any file – Drive often doesn't label .json correctly
     if (!file) return;
     try {
-      const data = JSON.parse(await file.text());
-      if (data.app !== 'beat-orders') throw new Error('Keine Beat-Orders-Datei');
-      if (data.version >= 2 && !confirm('Komplett-Backup einspielen? Profil, Karriere & Einstellungen werden durch das Backup ersetzt, Aufträge und Dateien zusammengeführt.')) return;
-      for (const o of data.orders || []) {
-        if (GENRE_RENAMES[o.genre]) o.genre = GENRE_RENAMES[o.genre];
-        const cur = state.orders.find((x) => x.id === o.id);
-        if (!cur || (o.updatedAt || 0) > (cur.updatedAt || 0)) await db.putOrder(o);
+      let header = null, files = 0;
+      const putFile = async (id, data) => { await db.putFile(id, await (await fetch(data)).blob()); files++; };
+      for await (const line of readLines(file)) {
+        if (!line.trim()) continue;
+        const data = JSON.parse(line);
+        if (!header) {
+          if (data.app !== 'beat-orders') throw new Error('Keine Beat-Orders-Datei');
+          if (data.version >= 2 && !confirm('Komplett-Backup einspielen? Profil, Karriere & Einstellungen werden durch das Backup ersetzt, Aufträge und Dateien zusammengeführt.')) return;
+          header = data;
+          toast('Backup wird eingespielt …');
+          for (const o of data.orders || []) {
+            if (GENRE_RENAMES[o.genre]) o.genre = GENRE_RENAMES[o.genre];
+            const cur = state.orders.find((x) => x.id === o.id);
+            if (!cur || (o.updatedAt || 0) > (cur.updatedAt || 0)) await db.putOrder(o);
+          }
+          for (const f of data.files || []) await putFile(f.id, f.data); // v2: files inline
+          if (data.kv) for (const [k, v] of Object.entries(data.kv)) await db.set(k, v);
+          // v1 backups (older app versions)
+          if (data.settings) await db.set('settings', { ...DEFAULT_SETTINGS, ...data.settings });
+          if (data.profile) await db.set('profile', { ...DEFAULT_PROFILE, ...data.profile });
+        } else if (data.file) {
+          await putFile(data.file, data.data);
+        }
       }
-      for (const f of data.files || []) await db.putFile(f.id, await (await fetch(f.data)).blob());
-      if (data.kv) for (const [k, v] of Object.entries(data.kv)) await db.set(k, v);
-      // v1 backups (older app versions)
-      if (data.settings) await db.set('settings', { ...DEFAULT_SETTINGS, ...data.settings });
-      if (data.profile) await db.set('profile', { ...DEFAULT_PROFILE, ...data.profile });
+      if (!header) throw new Error('Datei ist leer');
       state.orders = await db.allOrders();
       await loadState();
       const pfp = await db.getFile('pfp');
       if (pfp) state.pfpUrl = URL.createObjectURL(pfp.blob);
-      toast(`Backup importiert ✅ (${(data.files || []).length} Dateien)`);
+      toast(`Backup importiert ✅ (${files} Dateien${header.fileCount && files < header.fileCount ? ` – ${header.fileCount - files} fehlen, Datei unvollständig?` : ''})`);
       render();
       syncSoon();
     } catch (e) {
@@ -2148,6 +2237,7 @@ document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () 
 document.addEventListener('input', (e) => {
   const el = e.target;
   if (el.dataset.lyrics) { const st = $('#lyricsStats'); if (st) st.textContent = lyricsStats(el.value); }
+  if (el.dataset.lyrics || el.dataset.note || el.dataset.lesson) autosaveText(el);
   if (el.dataset.input === 'search') {
     state.filter.q = el.value;
     const pos = el.selectionStart;
@@ -2171,18 +2261,9 @@ document.addEventListener('change', async (e) => {
   } else if (el.dataset.setting) {
     state.settings[el.dataset.setting] = el.value.trim();
     await saveSettings();
-  } else if (el.dataset.lyrics) {
-    const o = state.orders.find((x) => x.id === el.dataset.lyrics);
-    o.lyrics = el.value;
-    await saveOrder(o, { silent: false });
-  } else if (el.dataset.lesson) {
-    const o = state.orders.find((x) => x.id === el.dataset.lesson);
-    o.review.lesson = el.value;
-    await saveOrder(o);
-  } else if (el.dataset.note) {
-    const o = state.orders.find((x) => x.id === el.dataset.note);
-    o.notes = el.value;
-    await saveOrder(o);
+  } else if (el.dataset.lyrics || el.dataset.lesson || el.dataset.note) {
+    const o = flushText(el);
+    if (o) await saveOrder(o);
   } else if (el.dataset.toggle) {
     const [key, sub] = el.dataset.toggle.split(':');
     const s = state.settings;
@@ -2257,6 +2338,8 @@ async function boot() {
     if (from in savedWeights) { savedWeights[to] ??= savedWeights[from]; delete savedWeights[from]; }
   }
   for (const o of state.orders) if (GENRE_RENAMES[o.genre]) { o.genre = GENRE_RENAMES[o.genre]; await db.putOrder(o); }
+  const pend = await db.get('pendingOrder');
+  if (pend && GENRE_RENAMES[pend.genre]) { pend.genre = GENRE_RENAMES[pend.genre]; await db.set('pendingOrder', pend); }
   // New genres get their defaults; old on/off genre list is folded in once.
   const oldGenres = state.settings.genres;
   state.settings.genreWeights = { ...DEFAULT_GENRE_WEIGHTS, ...savedWeights };
@@ -2284,6 +2367,7 @@ async function boot() {
   const pfp = await db.getFile('pfp');
   if (pfp) state.pfpUrl = URL.createObjectURL(pfp.blob);
   state.lastSync = await db.get('lastSync');
+  state.lastBackupAt = await db.get('lastBackupAt');
   state.cloudConfigured = await cloud.configured();
 
   // First launch: welcome order so the app isn't empty.
@@ -2309,7 +2393,7 @@ async function boot() {
     history.replaceState(null, '', location.pathname);
   }
 
-  if (isNative) setupNative();
+  if (isNative) { setupNative(); App.getInfo().then((i) => { state.appVersion = i.version; }).catch(() => {}); }
   else if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch((e) => console.warn('sw', e));
     navigator.serviceWorker.addEventListener('message', (e) => {

@@ -64,3 +64,22 @@ export async function shareBlob(blob, name, title) {
   });
   await Share.share({ title, files: [uri] });
 }
+
+// Write a (possibly huge) text file piece by piece into the cache and return
+// its uri – used for the complete backup so hundreds of MB of MP3s never have
+// to sit in memory as one string.
+export async function writeTextFile(name, chunks) {
+  const safe = name.replace(/[^\w.\- ]+/g, '_');
+  let first = true, uri;
+  for await (const data of chunks) {
+    const res = await Filesystem[first ? 'writeFile' : 'appendFile']({ path: safe, data, directory: 'CACHE', encoding: 'utf8' });
+    if (first) uri = res.uri;
+    first = false;
+  }
+  if (!uri) uri = (await Filesystem.getUri({ path: safe, directory: 'CACHE' })).uri;
+  return uri;
+}
+
+export async function shareUri(uri, title) {
+  await Share.share({ title, files: [uri] });
+}

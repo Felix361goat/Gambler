@@ -123,9 +123,12 @@ export const cloud = {
     let stateChanged = false;
     const localAt = (await db.get('stateUpdatedAt')) || 0;
     const remoteAt = stateRow?.data?.updatedAt || 0;
-    if (remoteAt > localAt) {
+    // First sync on this device (new phone / reinstall): the cloud copy wins,
+    // otherwise a fresh, empty profile would overwrite your coins & career.
+    const firstSync = !(await db.get('lastSync'));
+    if (stateRow && (firstSync || remoteAt > localAt)) {
       for (const k of STATE_KEYS) if (k in stateRow.data.kv) await db.set(k, stateRow.data.kv[k], { touch: false });
-      await db.set('stateUpdatedAt', remoteAt, { touch: false });
+      await db.set('stateUpdatedAt', Math.max(remoteAt, localAt), { touch: false });
       stateChanged = true;
     } else if (localAt > remoteAt) {
       const kv = {};
