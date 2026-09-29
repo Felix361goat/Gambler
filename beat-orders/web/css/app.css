@@ -490,6 +490,29 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
 .req { font-size: 14px; color: var(--label-2); }
 .req.ok { color: var(--green); }
 
+/* Motivation */
+.session-start { width: 100%; margin: -4px 0 14px; }
+.session-bar { position: fixed; left: 50%; transform: translateX(-50%); top: calc(var(--safe-top) + 8px); z-index: 45;
+  display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; font-size: 14px; font-weight: 600;
+  font-variant-numeric: tabular-nums; max-width: calc(100% - 32px); white-space: nowrap; overflow: hidden; }
+.session-bar b { color: var(--red); margin-left: 4px; }
+.rec-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--red); animation: recpulse 1.2s ease-in-out infinite; flex: none; }
+.quests .row { align-items: flex-start; }
+.quest .q-ico { font-size: 20px; width: 26px; text-align: center; }
+.quest .value { font-size: 14px; font-weight: 600; color: var(--label); min-width: 58px; }
+.quest .value small { font-weight: 500; color: var(--label-2); }
+.quest.done .label { color: var(--label-2); text-decoration: line-through; }
+.recap { border-radius: var(--radius); padding: 14px 16px; margin-bottom: 14px; }
+.recap-head { display: flex; justify-content: space-between; align-items: center; }
+.recap .x { color: var(--label-2); font-size: 20px; }
+.recap-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0 8px; text-align: center; }
+.recap-grid b { display: block; font-size: 20px; }
+.recap-grid span { font-size: 11px; color: var(--label-2); }
+.recap p { margin: 0; font-size: 14px; color: var(--label-2); }
+.tip { display: flex; gap: 12px; align-items: flex-start; border-radius: var(--radius); padding: 14px 16px; margin: 14px 0; font-size: 14px; }
+.tip > span { font-size: 22px; }
+.tip b { display: block; font-size: 13px; color: var(--label-2); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 2px; }
+
 /* Toast */
 .toast {
   position: fixed; left: 50%; transform: translateX(-50%); top: calc(var(--safe-top) + 10px); z-index: 60;

@@ -360,12 +360,12 @@ export const EXPERTS = [
   { id: 'expert:slide', name: 'Sir Sliding Eight-O-Eight', arch: 'expert', g: 'm', sig: 'Slide or die.', fact: 'Ich habe 400 Drill-Beats bewertet, 3 waren gut.',
     spec: { genre: 'UK Drill', label: 'UK-Drill-Beat', bpm: [140, 144], keys: ['F# Moll', 'D Moll'], inst: ['Sliding 808s', 'Drill-Hi-Hats im Triolen-Swing', 'dunkle Strings', 'Snare auf 3'] },
     look: { bg: '#18181b', hair: 'cap', sunglasses: false, beard: true, chain: true, skin: '#6b3f26' } },
-  { id: 'expert:sampleton', name: 'Onkel Sampleton', arch: 'expert', g: 'm', sig: 'Staub ist Gold.', fact: 'Meine Plattensammlung wiegt mehr als mein Auto.',
-    spec: { genre: 'Boom Bap (90s NY)', label: '90s-Boom-Bap-Beat', bpm: [86, 94], keys: ['A Moll', 'D Moll'], inst: ['gechoppte Soul-/Jazz-Samples', 'dreckige Drums mit Swing', 'Vinyl-Crackle', 'Upright- oder Sub-Bass'] },
-    look: { bg: '#1c1917', hair: 'beanie', roundGlasses: true, beard: true, skin: '#b87a4b' } },
-  { id: 'expert:kickroll', name: 'Queen Kickroll', arch: 'expert', g: 'f', sig: 'Bounce ist Pflicht.', fact: 'Ich tanze zu jedem Beat, den ich bewerte. Auch zu den schlechten.',
-    spec: { genre: 'Jersey Club', label: 'Jersey-Club-Beat', bpm: [138, 142], keys: ['E Moll', 'B Moll'], inst: ['Kick-Rolls im Jersey-Pattern', 'Bed-Squeaks', 'Vocal-Chops', 'Synth-Stabs'] },
-    look: { bg: '#1e1b4b', hair: 'long', hairColor: '#111', lashes: true, lips: true, hoops: true, skin: '#6b3f26', fem: true } },
+  { id: 'expert:afroswing', name: 'Big Man Swingz', arch: 'expert', g: 'm', sig: 'Bounce, Melodie, Wärme. Sonst nix.', fact: 'Ich war bei jeder Afroswing-Welle in London dabei.',
+    spec: { genre: 'UK Afroswing', label: 'UK-Afroswing-Beat', bpm: [100, 108], keys: ['A Moll', 'F# Moll', 'G Moll'], inst: ['Afro-Percs mit Shaker & Congas', 'gezupfte Gitarre oder Keys', 'Dancehall-Snare', 'runder Sub', 'Platz für Hook-Melodie'] },
+    look: { bg: '#052e16', hair: 'fade', beard: true, chain: true, sunglasses: false, skin: '#6b3f26' } },
+  { id: 'expert:jerk', name: 'Jerkmaster Jaylen', arch: 'expert', g: 'm', sig: 'Schnell, luftig, jerky.', fact: 'Ich höre nichts unter 150 BPM. Nichts.',
+    spec: { genre: 'Jerk', label: 'Jerk-Beat', bpm: [152, 166], keys: ['C Dur', 'A Moll', 'E Moll'], inst: ['luftige Bells/Plucks', 'Jersey-Kick-Pattern', 'schnelle Hi-Hats', 'verzerrte 808', 'Vocal-Chops'] },
+    look: { bg: '#1e1b4b', hair: 'messy', hairColor: '#111', sunglasses: true, chain: true, skin: '#8a5433' } },
 ];
 
 export const BOSS = {
@@ -385,6 +385,24 @@ function seed(str) {
 
 for (const [arch, P] of Object.entries(PEOPLE)) if (P.names) ARCHETYPES[arch].names = P.names;
 
+// ---- personal habits ("Marotten") -----------------------------------------
+const EMOJIS = ['🦄', '🌶️', '🐸', '🍕', '🥑', '🔥', '🌈', '🐙', '🍩', '⚡', '🦖', '🍉', '🐝', '👽', '🍓', '🦩', '🌵', '🧃', '🐧', '🍿', '🪩', '🦦', '🥨', '🐌'];
+const PETS = ['Mausi', 'Dackel Bruno', 'Kater Gustav', 'Hamster Pablo', 'Wellensittich Kiki', 'Schildkröte Frieda', 'Goldfisch Schnappi', 'Hase Klopfer', 'Mops Otto', 'Chihuahua Lola'];
+const QUIRKS = [
+  { id: 'voice', add: () => '(hab dir auch noch ne sprachnachricht geschickt, 7 minuten 🎙️)' },
+  { id: 'pet', add: (c) => `Grüße auch von ${c.pet} 🐾` },
+  { id: 'emoji', add: (c) => `${c.emoji}${c.emoji}${c.emoji}` },
+  { id: 'nick', add: (c) => `– dein ${firstName(c).replace(/[^\p{L}]/gu, '').slice(0, 5)}i ✌️` },
+  { id: 'hashtags', add: (c) => `#${firstName(c).replace(/[^\p{L}\p{N}]/gu, '')} #beatgang #bittepünktlich` },
+  { id: 'counter', add: (c, r) => `(das ist übrigens meine ${2 + Math.floor(r() * 9)}. nachricht heute)` },
+  { id: 'askback', add: () => 'Wie geht’s dir eigentlich? Egal, Beat bitte.' },
+  { id: 'weather', add: (c, r) => `Wetter bei mir: ${pickR(r, ['regnet', '31 Grad', 'Nebel wie im Horrorfilm', 'Sonne, aber mental Regen'])}.` },
+  { id: 'caps', add: () => 'BITTE NICHT VERGESSEN!!!' },
+  { id: 'typo', add: () => '*ich meinte natürlich Beat, nicht Beet 🥬' },
+  { id: 'snack', add: (c, r) => `(schreib grad mit ${pickR(r, ['Chips', 'Leberkässemmel', 'Gummibärchen', 'Kebab', 'Müsli'])} in der Hand, sorry für Flecken)` },
+  { id: 'ps2', add: (c, r) => `P.P.S.: ${pickR(r, c.facts)}` },
+];
+
 export const CUSTOMERS = Object.entries(ARCHETYPES).filter(([, a]) => !a.special).flatMap(([arch, a]) => a.names.map((n, i) => {
   const [name, g] = n.split('|');
   const P = PEOPLE[arch] || {};
@@ -394,10 +412,16 @@ export const CUSTOMERS = Object.entries(ARCHETYPES).filter(([, a]) => !a.special
   return {
     id: `${arch}:${name}`, name, arch, g,
     sig: P.sigs?.[i % P.sigs.length] || '',
-    facts: nf ? [P.facts[(2 * i) % nf], P.facts[(2 * i + 1) % nf]] : [],
+    facts: nf ? [0, 1, 2].map((k) => P.facts[(3 * i + k) % nf]) : [],
     likes: pool.slice(0, 2),
   };
 }));
+// Everyone also gets a personal habit + favourite emoji (spread across all customers).
+CUSTOMERS.forEach((c, n) => {
+  c.quirk = QUIRKS[(n * 7) % QUIRKS.length].id;
+  c.emoji = EMOJIS[(n * 11) % EMOJIS.length];
+  c.pet = PETS[(n * 5) % PETS.length];
+});
 export const CUSTOMER_BY_ID = Object.fromEntries([...CUSTOMERS, ...EXPERTS, BOSS].map((c) => [c.id, c]));
 
 // What we call them inside their own messages.
@@ -418,15 +442,21 @@ export function writeBrief(customer, type, vars, r = Math.random) {
   const greet = fill(pickR(r, a.greet), v);
   let line = fill(pickR(r, a.lines), v);
   // Formal greetings end with a comma → continue lowercase; otherwise capitalise.
-  if (!/,$/.test(greet) && !a.kid && customer.arch !== 'chaya' && customer.arch !== 'gamer') line = cap(line);
-  const extra = fill(pickR(r, a.extra[kind]), v);
+  const proper = !a.kid && customer.arch !== 'chaya' && customer.arch !== 'gamer';
+  if (!/,$/.test(greet) && proper) line = cap(line);
+  // Sentence starts after a full stop get a capital letter (proper writers only).
+  if (proper) line = line.replace(/([.!?]\s+)([a-zäöü])/g, (m, p1, c) => p1 + c.toUpperCase());
+  let extra = fill(pickR(r, a.extra[kind]), v);
+  if (proper) extra = cap(extra);
   const outro = fill(pickR(r, a.outro), v);
   // Their own random (useless) fact – about every second message.
   const P = PEOPLE[customer.arch];
-  const fact = customer.facts?.length && r() < 0.5
+  const fact = customer.facts?.length && r() < 0.75
     ? `\n${fill(P.factTpl, { first: firstName(customer), fact: pickR(r, customer.facts) })}` : '';
+  const q = QUIRKS.find((x) => x.id === customer.quirk);
+  const habit = q && r() < 0.7 ? `\n${q.add(customer, r)}` : '';
   const sig = customer.sig ? `\n${customer.sig}` : '';
-  return `${greet}\n${line} ${extra}${fact}\n\n${outro}${sig}`;
+  return `${greet}\n${line} ${extra}${fact}${habit}\n\n${outro}${sig}`;
 }
 
 // Experts: always the same demand, very precise.
@@ -445,7 +475,8 @@ export function writeBossBrief(boss, vars, minRating) {
 export function replyFor(customer, kind) {
   const a = ARCHETYPES[customer?.arch];
   if (!a?.replies?.[kind]) return null;
-  return pickR(Math.random, a.replies[kind]);
+  const base = pickR(Math.random, a.replies[kind]);
+  return customer.sig && kind !== 'reject' ? `${base}\n${customer.sig}` : base;
 }
 
 export function budgetFor(customer, base, r = Math.random) {

@@ -1,3 +1,4 @@
+import { songPrompt, songTheme } from './themes.js';
 import {
   CUSTOMERS, CUSTOMER_BY_ID, EXPERTS, BOSS, writeBrief, writeExpertBrief, writeBossBrief, replyFor, budgetFor,
 } from './customers.js';
@@ -32,7 +33,35 @@ export const GENRES = {
   'Jersey Club': { bpm: [135, 145], keys: ['E Moll', 'B Moll'], inst: ['Bed Squeaks', 'Kick Rolls', 'Vocal Chops', 'Synth Stabs'] },
   'Dancehall':   { bpm: [90, 105], keys: ['G Moll', 'D Moll'], inst: ['Riddim Drums', 'Skank Guitar', 'Horns', 'Sub Bass'] },
   'Hyperpop':    { bpm: [140, 170], keys: ['B Dur', 'E Dur'], inst: ['Supersaws', 'Pitched Vocals', 'Glitch FX', 'Distorted Drums'] },
+  // UK / Afro
+  'UK Afroswing': { bpm: [98, 110], keys: ['A Moll', 'F# Moll', 'C Moll', 'G Moll'], inst: ['Afro-Percs (Shaker, Congas)', 'gezupfte Gitarre', 'warme Keys', 'Dancehall-Snare', 'Vocal-Chops', 'runder Sub-Bass'] },
+  'UK Drill':    { bpm: [140, 144], keys: ['F# Moll', 'D Moll', 'C# Moll'], inst: ['Sliding 808s', 'Drill-Hi-Hats (Triolen)', 'dunkle Strings', 'Snare auf 3', 'Choir-Pads'] },
+  'UK Garage':   { bpm: [130, 136], keys: ['F Moll', 'A Moll'], inst: ['2-Step-Shuffle-Drums', 'Organ-Bass', 'gepitchte Vocal-Chops', 'Stabs'] },
+  'Grime':       { bpm: [138, 142], keys: ['E Moll', 'D Moll'], inst: ['eckige Square-Leads', 'Sub-Bass', 'Eski-Stabs', 'harte Snares'] },
+  'Amapiano':    { bpm: [110, 115], keys: ['A Moll', 'D Moll', 'F Dur'], inst: ['Log Drum', 'Shaker', 'jazzige Piano-Chords', 'weite Pads', 'Whistle'] },
+  // US sounds
+  'Detroit':     { bpm: [94, 104], keys: ['F Moll', 'C# Moll', 'G Moll'], inst: ['hüpfendes Offbeat-Piano', 'Clap auf 2 & 4', 'schnelle Hi-Hats', 'kurze 808 mit Glide'] },
+  'Jerk':        { bpm: [150, 168], keys: ['C Dur', 'A Moll', 'E Moll'], inst: ['luftige Bells/Plucks', 'Jersey-Kicks', 'schnelle Hi-Hats', 'verzerrte 808', 'Vocal-Chops'] },
+  'Plugg':       { bpm: [140, 160], keys: ['Db Dur', 'F Moll'], inst: ['verträumte Synth-Chords', 'lange Plugg-808', 'sparsame Hi-Hats', 'Glocken'] },
+  'Rage':        { bpm: [150, 165], keys: ['C# Moll', 'F Moll'], inst: ['verzerrte Supersaw-Leads', 'harte 808', 'Hi-Hat-Rolls', 'Sirenen-FX'] },
+  'NY Drill':    { bpm: [140, 145], keys: ['G Moll', 'D# Moll'], inst: ['Sliding 808s', 'gechoppte Vocal-Samples', 'Drill-Hats', 'dunkle Pianos'] },
+  'Memphis':     { bpm: [130, 145], keys: ['C# Moll', 'F Moll'], inst: ['Cowbell', 'Memphis-Vocal-Chops', 'dreckige Drums', 'Horror-Synths'] },
+  'West Coast':  { bpm: [88, 100], keys: ['A Moll', 'D Moll'], inst: ['G-Funk-Synth-Whine', 'Talkbox', 'funky Bass', 'Claps', 'Rhodes'] },
+  // Ab und zu was ganz anderes
+  'House':       { bpm: [120, 126], keys: ['A Moll', 'F Moll', 'C Dur'], inst: ['Four-on-the-floor-Kick', 'Offbeat-Hats', 'Piano-Stabs', 'Deep-Bass', 'Vocal-Chops'] },
+  'Indie House': { bpm: [118, 124], keys: ['D Dur', 'B Moll', 'E Moll'], inst: ['Gitarren-Riff', 'warme Synths', 'Four-on-the-floor', 'gefilterte Vocals'] },
+  'Indie Rock':  { bpm: [110, 150], keys: ['E Dur', 'A Dur', 'D Dur'], inst: ['verzerrte Gitarre', 'Live-Drums', 'Bassgitarre', 'Tambourin', 'Gang-Vocals'] },
 };
+
+// How often each genre comes up (0 = aus … 4 = sehr oft). Tuned to your taste:
+// UK Afroswing + US sounds a lot, House/Indie ab und zu, Indie Rock selten.
+export const DEFAULT_GENRE_WEIGHTS = {
+  'UK Afroswing': 4, 'Afrobeats': 3, 'Detroit': 3, 'Jerk': 3, 'UK Drill': 2, 'NY Drill': 2, 'Plugg': 2, 'Rage': 2,
+  'Amapiano': 2, 'Trap': 2, 'R&B': 2, 'Deutschrap': 2, 'Drill': 1, 'Jersey Club': 2, 'UK Garage': 1, 'Grime': 1,
+  'Memphis': 1, 'West Coast': 1, 'Boom Bap': 1, 'Lo-Fi': 1, 'Pop': 1, 'Phonk': 1, 'Dancehall': 1, 'Hyperpop': 1,
+  'House': 1, 'Indie House': 1, 'Indie Rock': 1,
+};
+export const GENRE_LABELS = ['Aus', 'Selten', 'Ab und zu', 'Oft', 'Sehr oft'];
 
 const MOODS = ['dunkel', 'melancholisch', 'aggressiv', 'chillig', 'euphorisch', 'emotional', 'bouncy', 'verträumt', 'hart', 'sommerlich'];
 
@@ -264,14 +293,22 @@ const VOCAL_CONCEPTS = [
   { format: 'Feature-Style', length: 'Hook + Part + Platz für Feature', idea: 'Schreib Hook und einen Part auf „{song}“ und lass Platz für ein Feature (16 Bars). Thema: {theme}.' },
 ];
 
+export function vocalBrief(c, title, pr) {
+  return `${fill(c.idea, { song: title, theme: pr.theme })}\n\n✍️ Thema (${pr.category}): ${pr.theme}\n👁️ Perspektive: ${pr.perspective}\n` +
+    `🔑 Pflicht-Wort: „${pr.word}“\n🎬 Einstieg (optional): ${pr.opener}\n💭 Gefühl: ${pr.emotion}`;
+}
+export { songPrompt };
+
 export function createVocalOrder(beat, { concept, history = [], settings } = {}) {
   const now = Date.now();
   const c = concept || pick(VOCAL_CONCEPTS);
   const title = beat.title || `${ORDER_TYPES[beat.type]?.label || 'Beat'} für ${beat.client}`;
+  const prompt = songPrompt(beat.genre);
   return {
     id: uid(), client: 'Du', type: 'vocals', genre: beat.genre,
     title: `Vocals: ${title}`,
-    brief: fill(c.idea, { song: title, theme: pick(THEMES) }),
+    brief: vocalBrief(c, title, prompt),
+    prompt,
     concept: c, sourceOrderId: beat.id,
     challenge: pickChallenge('vocals', { history }),
     effort: ORDER_TYPES.vocals.effort,
@@ -306,10 +343,11 @@ export const DEFAULT_SETTINGS = {
     { from: '16:00', to: '23:00' }, // Fr (früher frei – Hauptblock)
     { from: '18:00', to: '22:30' }, // Sa (nach dem Match)
   ],
-  genres: ['Trap', 'Boom Bap', 'R&B', 'Deutschrap', 'Lo-Fi'],
+  genreWeights: { ...DEFAULT_GENRE_WEIGHTS },
   types: { instrumental: 3, full_song: 1, vocal_chain: 1, hook: 1, remix: 1 }, // Gewichtung, 0 = aus
   notifications: false,
-  videoThreshold: 9, // eigene Bewertung (1–10), ab der ein Song fürs Video freigegeben wird
+  vocalThreshold: 8, // eigene Bewertung, ab der ein Beat für Vocals freigegeben wird
+  videoThreshold: 9, // eigene Bewertung, ab der ein Song fürs Video freigegeben wird
 };
 
 function weightedType(weights) {
@@ -346,15 +384,19 @@ export function generateOrder(settings, { type, at, history = [] } = {}) {
   const { declined } = analyze(history.slice(-40));
   const recent = [...history].filter((o) => o.type !== 'own' && o.type !== 'video' && !o.deleted)
     .sort((a, b) => b.createdAt - a.createdAt);
-  const known = (settings.genres?.length ? settings.genres : Object.keys(GENRES)).filter((g) => GENRES[g]);
-  const genreNames = known.length ? known : Object.keys(GENRES);
+  const gw = settings.genreWeights || DEFAULT_GENRE_WEIGHTS;
+  const enabled = Object.keys(GENRES).filter((g) => (gw[g] ?? 0) > 0);
+  const genreNames = enabled.length ? enabled : Object.keys(GENRES);
   const customer = pickCustomer(history);
-  const theirs = (customer.likes || []).filter((g) => GENRES[g]);
+  const theirs = (customer.likes || []).filter((g) => (gw[g] ?? 0) > 0);
   const recentGenres = recent.slice(0, 2).map((o) => o.genre);
   const freshGenres = genreNames.filter((g) => !recentGenres.includes(g));
-  const genre = theirs.length && Math.random() < 0.7
+  // Your strong genres (≥ 8 Ø) come up a bit more, declined ones less.
+  const { genres: genreStats } = analyze(history);
+  const genre = theirs.length && Math.random() < 0.45
     ? pick(theirs)
-    : weightedPick(freshGenres.length ? freshGenres : genreNames, (g) => 1 / (1 + (declined.genres[g] || 0)));
+    : weightedPick(freshGenres.length ? freshGenres : genreNames,
+      (g) => (gw[g] ?? 1) * ((genreStats[g]?.avg ?? 0) >= 8 ? 1.3 : 1) / (1 + (declined.genres[g] || 0)));
   const g = GENRES[genre];
   const tw = Object.fromEntries(Object.entries(settings.types || DEFAULT_SETTINGS.types)
     .map(([k, w]) => [k, w / (1 + 0.5 * (declined.types[k] || 0))]));
@@ -365,7 +407,7 @@ export function generateOrder(settings, { type, at, history = [] } = {}) {
   const [i1, i2] = pickN(g.inst, 2);
   const vars = {
     genre, bpm, key: pick(g.keys), mood: pick(MOODS), i1, i2,
-    theme: pick(THEMES), voice: pick(VOICES),
+    theme: songTheme(genre), voice: pick(VOICES),
   };
   const now = at ?? Date.now();
   const { budget, note } = budgetFor(customer, rand(T.budget[0], T.budget[1]));
@@ -436,8 +478,8 @@ export function createExpertOrder(settings, { history = [], at } = {}) {
 
 export function createBossOrder(settings, { history = [], at } = {}) {
   const now = at ?? Date.now();
-  const genres = (settings.genres?.length ? settings.genres : Object.keys(GENRES));
-  const vars = { genre: pick(genres) };
+  const gw = settings.genreWeights || DEFAULT_GENRE_WEIGHTS;
+  const vars = { genre: weightedPick(Object.keys(GENRES), (g) => gw[g] ?? 0) };
   const d = new Date(now); d.setDate(d.getDate() + 42); d.setHours(23, 59, 0, 0);
   return {
     id: uid(), tier: 'boss', minRating: BOSS_MIN,
