@@ -1,10 +1,11 @@
 import { db, requestPersistence } from './db.js';
 import {
   ORDER_TYPES, GENRES, DEFAULT_SETTINGS, generateOrder, createOwnProject,
-  clientReply, nextArrival, uid, createVideoOrder, rerollConcept, reviewOpensAt,
+  clientReply, nextArrival, uid, createVideoOrder, createVocalOrder, rerollConcept, reviewOpensAt,
   SKILLS, levelInfo, analyze, pickChallenge, windowOn, freeMinutesPerWeek,
 } from './generator.js';
-import { SHOP, ITEMS, TROPHIES, TROPHY_BONUS, orderCoins, DEFAULT_PROFILE } from './shop.js';
+import { SHOP, ITEMS, TROPHIES, TROPHY_BONUS, orderCoins, DEFAULT_PROFILE, carSvg } from './shop.js';
+import { CUSTOMERS, CUSTOMER_BY_ID, ARCHETYPES, avatarSvg, vipAvatar, VIP_LINES } from './customers.js';
 import { cloud } from './cloud.js';
 import {
   isNative, App, LocalNotifications, notifId, requestNotificationPermission, scheduleAll, shareBlob,
@@ -42,12 +43,20 @@ const MODE = {
   'üben': { icon: '🎯', label: 'Üben' },
 };
 const fmtHours = (h) => `${String(h).replace('.', ',')} Std`;
-const selfMade = (o) => o.type === 'own' || o.type === 'video'; // no "client"
+const selfMade = (o) => o.type === 'own' || o.type === 'video' || o.type === 'vocals'; // no "client"
 const isAudioFile = (s) => (s.mime || '').startsWith('audio/') || /\.(mp3|wav|m4a|aac|flac|aiff?|ogg)$/i.test(s.name);
 const isVideoFile = (s) => (s.mime || '').startsWith('video/') || /\.(mp4|mov|m4v|webm|3gp)$/i.test(s.name);
 // Self-review: opens the day after delivery, then rate 1–10.
 const reviewOpen = (o) => visible(o) && o.review && !o.review.rating && Date.now() >= o.review.opensAt;
 const reviewWaiting = (o) => visible(o) && o.review && !o.review.rating && Date.now() < o.review.opensAt;
+
+// Top rating unlocks the next step: a beat gets vocals, a song gets a video.
+const BEAT_TYPES = ['instrumental', 'remix'];
+const unlockFor = (o) => (BEAT_TYPES.includes(o.type) ? 'vocals' : 'video');
+const UNLOCK = {
+  vocals: { icon: '🎙️', short: 'Vocals', free: 'Freigegeben für Vocals', hint: 'wird er für Vocals freigegeben', go: 'Zum Vocal-Auftrag' },
+  video: { icon: '🎬', short: 'Video', free: 'Freigegeben für Videos', hint: 'wird der Song fürs Video freigegeben', go: 'Zum Video-Auftrag' },
+};
 
 // ---- Progress: XP, level, weekly streak, learned skills -----------------
 function orderXp(o) {
@@ -82,14 +91,17 @@ function progress() {
     onTime: done.filter((o) => o.deadline && o.deliveredAt <= o.deadline).length,
     tens: rated.filter((o) => o.review.rating === 10).length,
     videos: done.filter((o) => o.type === 'video').length,
+    songs: done.filter((o) => o.type === 'vocals').length,
     streak, skills: skills.size, level: info.level,
     areas: new Set(done.filter((o) => o.challenge?.done).map((o) => o.challenge.area)).size,
     goodGenres: Object.values(genreAvg).filter((a) => a.reduce((x, y) => x + y, 0) / a.length >= 8).length,
+    clients: new Set(done.map((o) => o.customerId).filter(Boolean)).size,
+    clientsTotal: CUSTOMERS.length,
   };
   const trophies = TROPHIES.map((t) => { const [cur, goal] = t.check(tstats); return { ...t, cur: Math.min(cur, goal), goal, won: cur >= goal }; });
   const earned = done.reduce((a, o) => a + orderCoins(o, thr), 0) + trophies.filter((t) => t.won).length * TROPHY_BONUS;
   const spent = state.profile.owned.reduce((a, id) => a + (ITEMS[id]?.price || 0), 0);
-  return { ...info, streak, skills, trophies, coins: earned - spent };
+  return { ...info, streak, skills, trophies, coins: earned - spent, delivered: tstats.delivered, served: new Set(done.map((o) => o.customerId).filter(Boolean)) };
 }
 const genOpts = () => ({ history: state.orders.filter((o) => !o.deleted), settings: state.settings });
 
@@ -116,6 +128,8 @@ const gradient = (str) => {
   const h = hue(str);
   return `linear-gradient(135deg, hsl(${h} 85% 60%), hsl(${(h + 50) % 360} 80% 50%))`;
 };
+const customerOf = (o) => CUSTOMER_BY_ID[o.customerId];
+const hasVip = () => state.profile.owned.includes('vip-chaya');
 const initials = (name) => name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
 
 function fmtDate(ts, opts = { weekday: 'short', day: 'numeric', month: 'short' }) {
@@ -293,7 +307,7 @@ async function scheduleNative(pending) {
     list.push({
       id: notifId(o.id + ':review'),
       title: `🎧 Nochmal anhören: ${orderTitle(o)}`,
-      body: `Mit frischen Ohren bewerten – ab ${state.settings.videoThreshold}/10 gibt's einen Video-Auftrag 🎬`,
+      body: `Mit frischen Ohren bewerten – ab ${state.settings.videoThreshold}/10 ${UNLOCK[unlockFor(o)].hint} ${UNLOCK[unlockFor(o)].icon}`,
       at: at.getTime(),
       extra: { orderId: o.id },
     });
@@ -369,22 +383,22 @@ function orderCard(o) {
     : o.status === 'in_progress' ? '<span class="pill">In Arbeit</span>'
     : reviewOpen(o) ? '<span class="pill accent">Bewerten</span>'
     : reviewWaiting(o) ? '<span class="pill">🔒 Morgen</span>'
-    : o.review?.rating ? `<span class="pill ${o.review.rating >= thr ? 'green' : ''}">${o.review.rating}/10${o.review.rating >= thr ? ' 🎬' : ''}</span>` : '';
+    : o.review?.rating ? `<span class="pill ${o.review.rating >= thr ? 'green' : ''}">${o.review.rating}/10${o.review.rating >= thr ? ` ${UNLOCK[unlockFor(o)].icon}` : ''}</span>` : '';
   return `<button class="card glass" data-action="open-order" data-id="${o.id}" style="display:block;width:100%;text-align:left">
     <div class="order-top">
-      <div class="avatar" style="background:${gradient(o.type === 'video' ? o.title : o.client)}">${selfMade(o) ? T.icon : esc(initials(o.client))}</div>
+      <div class="avatar" style="background:${gradient(o.type === 'video' ? o.title : o.client)}">${selfMade(o) ? T.icon : customerOf(o) ? avatarSvg(customerOf(o)) : esc(initials(o.client))}</div>
       <div class="order-meta">
-        <div class="order-client">${esc(selfMade(o) ? orderTitle(o) : o.client)}</div>
+        <div class="order-client">${esc(selfMade(o) ? orderTitle(o) : o.client)}${customerOf(o) ? ` <small class="arch">${esc(ARCHETYPES[customerOf(o).arch].label)}</small>` : ''}</div>
         <div class="order-sub">${T.icon} ${esc(T.label)} · ${esc(o.genre)}${o.bpm ? ` · ${o.bpm} BPM` : ''}</div>
       </div>
       ${status}
     </div>
-    ${o.type === 'own' ? '' : `<p class="order-brief">${esc(o.brief)}</p>`}
+    ${o.type === 'own' ? '' : `<p class="order-brief">${esc(o.brief.replace(/\s*\n+\s*/g, ' '))}</p>`}
     <div class="order-foot">
       <span class="pill ${due.cls}">${due.text}</span>
       ${o.challenge ? `<span class="pill ${o.challenge.done ? 'green' : 'blue'}">${MODE[o.challenge.mode]?.icon || '🎯'} ${esc(o.challenge.area)}${o.challenge.done ? ' ✓' : ''}</span>` : ''}
       ${o.effort && o.status !== 'delivered' ? `<span class="pill">⏱ ~${fmtHours(o.effort)}</span>` : ''}
-      ${o.submissions.length ? `<span class="pill">${o.type === 'video' ? '🎬' : '🎧'} ${o.submissions.length} Version${o.submissions.length > 1 ? 'en' : ''}</span>` : ''}
+      ${o.submissions.length ? `<span class="pill">${o.type === 'video' ? '🎬' : o.type === 'vocals' ? '🎙️' : '🎧'} ${o.submissions.length} Version${o.submissions.length > 1 ? 'en' : ''}</span>` : ''}
       <span class="spacer"></span>
       ${o.budget ? `<span class="pill green">${o.budget} €</span>` : ''}
     </div>
@@ -413,6 +427,7 @@ function renderOrders() {
     </div>
     <p class="subtitle">Hi${name} 👋 Diese Woche: ${doneWeek}/${state.settings.ordersPerWeek} erledigt</p>
     ${progressCard()}
+    ${hasVip() ? `<div class="vip-hype glass"><span class="mini-avatar big">${vipAvatar()}</span><div class="bubble them">${esc(VIP_LINES[new Date().getDate() % VIP_LINES.length])}</div></div>` : ''}
 
     ${toReview.length ? `<div class="section-title" style="margin-top:6px">Nochmal anhören <small>${toReview.length}</small></div>
       ${toReview.map(orderCard).join('')}
@@ -593,6 +608,7 @@ function renderProfile() {
   const done = state.orders.filter((o) => visible(o) && o.status === 'delivered');
   const rated = done.filter((o) => o.review?.rating);
   const owned = state.profile.owned.map((id) => ITEMS[id]).filter((i) => i?.cat === 'studio');
+  const cars = state.profile.owned.map((id) => ITEMS[id]).filter((i) => i?.cat === 'garage');
   const chips = (list, cls) => list.map((x) => `<span class="pill ${cls}">${esc(x)}</span>`).join('');
   return `
     <div class="profile-head">
@@ -626,6 +642,20 @@ function renderProfile() {
         <div class="t-icon">${t.icon}</div><b>${esc(t.name)}</b><span>${t.won ? esc(t.desc) : `${t.cur}/${t.goal} · ${esc(t.desc)}`}</span></div>`).join('')}
     </div>
 
+    ${hasVip() ? `<div class="section-title">👑 Deine VIP</div>
+      <div class="vip-card glass"><div class="vip-portrait">${vipAvatar()}</div>
+        <div><b>Chaya Diamond</b><span>VIP-Managerin · freigeschaltet</span><div class="bubble them" style="margin-top:8px">${esc(VIP_LINES[Math.floor(Date.now() / 3.6e6) % VIP_LINES.length])}</div></div></div>` : ''}
+
+    <div class="section-title">Garage <small>${cars.length}/${SHOP.garage.items.length}</small></div>
+    ${cars.length ? `<div class="garage">${cars.map((c) => `<div class="car glass">${carSvg(c)}<b>${esc(c.name)}</b></div>`).join('')}</div>`
+      : `<div class="empty glass"><div class="big">🏎️</div><h3>Noch keine Autos</h3><p>Erstes Ziel: der Golf GTI für 800 🪙. Endgegner: Bugatti Chiron.</p></div>`}
+
+    <div class="section-title">Kundenkartei <small>${p.served.size}/${CUSTOMERS.length}</small></div>
+    <div class="kartei glass">${CUSTOMERS.map((c) => p.served.has(c.id)
+      ? `<div class="k-item" title="${esc(c.name)}">${avatarSvg(c)}</div>`
+      : '<div class="k-item unknown">?</div>').join('')}</div>
+    <p class="footnote">Jeder Kunde, den du einmal bedient hast, landet hier. Schaffst du alle ${CUSTOMERS.length}?</p>
+
     <div class="section-title">Mein Studio <small>${owned.length}/${SHOP.studio.items.length}</small></div>
     ${owned.length ? `<div class="studio glass">${owned.map((i) => `<div class="studio-item" title="${esc(i.name)}"><span>${i.emoji}</span><small>${esc(i.name)}</small></div>`).join('')}</div>`
       : `<div class="empty glass"><div class="big">🏠</div><h3>Dein Studio ist noch leer</h3><p>Verdien Coins mit Aufträgen und richte es im Shop ein.</p>
@@ -640,13 +670,19 @@ function renderShopSheet() {
   const tile = (i) => {
     const owned = state.profile.owned.includes(i.id);
     const equipped = state.profile.frame === i.id || state.profile.banner === i.id;
-    const preview = tab === 'frames'
+    const lockedBy = i.needs?.delivered && p.delivered < i.needs.delivered ? `${p.delivered}/${i.needs.delivered} Abgaben` : '';
+    const preview = tab === 'garage' ? `<div class="shop-car">${carSvg(i)}</div>`
+      : tab === 'legendary' ? `<div class="vip-portrait" style="width:140px;height:140px">${vipAvatar()}</div><span class="muted">Deine persönliche Hype-Managerin. Nur für echte Dranbleiber – ca. 3 Jahre konstant.</span>`
+      : tab === 'frames'
       ? `<div class="pfp-wrap ${i.id}" style="width:72px;height:72px"><div class="pfp" style="background:${gradient(state.settings.artistName || 'Du')}">${state.pfpUrl ? `<img src="${state.pfpUrl}" alt="" />` : '🎧'}</div></div>`
       : tab === 'banners' ? `<div class="profile-banner ${i.id}" style="height:64px;border-radius:14px;width:100%"></div>`
       : `<div class="shop-emoji">${i.emoji}</div>`;
+    const cant = p.coins < i.price || lockedBy;
     const btn = !owned
-      ? `<button class="btn small ${p.coins < i.price ? 'secondary' : ''}" data-action="buy" data-id="${i.id}" ${p.coins < i.price ? 'disabled' : ''}>${i.price} 🪙</button>`
+      ? `<button class="btn small ${cant ? 'secondary' : ''}" data-action="buy" data-id="${i.id}" ${cant ? 'disabled' : ''}>${i.price.toLocaleString('de-DE')} 🪙${lockedBy ? ` · 🔒 ${lockedBy}` : ''}</button>`
       : tab === 'studio' ? '<span class="pill green">Im Studio ✓</span>'
+      : tab === 'garage' ? '<span class="pill green">In der Garage ✓</span>'
+      : tab === 'legendary' ? '<span class="pill green">👑 Freigeschaltet</span>'
       : `<button class="btn small ${equipped ? 'secondary' : ''}" data-action="equip" data-id="${i.id}">${equipped ? 'Ablegen' : 'Anlegen'}</button>`;
     return `<div class="shop-item glass">${preview}<b>${esc(i.name)}</b>${btn}</div>`;
   };
@@ -656,7 +692,7 @@ function renderShopSheet() {
       <h2>Shop</h2>
       <span style="width:80px;text-align:right"><span class="pill orange">${p.coins} 🪙</span></span>
     </div>
-    <div class="segmented">${Object.entries(SHOP).map(([k, c]) => `<button class="${k === tab ? 'on' : ''}" data-action="shop-tab" data-v="${k}">${c.label}</button>`).join('')}</div>
+    <div class="chips" style="margin-top:10px">${Object.entries(SHOP).map(([k, c]) => `<button class="chip glass ${k === tab ? 'on' : ''}" data-action="shop-tab" data-v="${k}">${c.label}</button>`).join('')}</div>
     <div class="shop-grid ${tab}">${items.map(tile).join('')}</div>
     <p class="footnote">Coins gibt's für jede Abgabe (+20), Pünktlichkeit (+10), geschaffte Challenges (+15), gute Bewertungen (+10/+25) und Trophäen (+${TROPHY_BONUS}).</p>
   `;
@@ -697,9 +733,9 @@ function renderSettings() {
     <div class="group glass">
       <div class="row"><span class="label">Aufträge pro Woche</span><span class="value">${s.ordersPerWeek}</span>${stepper('ordersPerWeek', 1, 14)}</div>
       <div class="row"><span class="label">Max. gleichzeitig</span><span class="value">${s.maxActive}</span>${stepper('maxActive', 1, 6)}</div>
-      <div class="row"><span class="label">Video-Freigabe ab</span><span class="value">${s.videoThreshold}/10</span>${stepper('videoThreshold', 5, 10)}</div>
+      <div class="row"><span class="label">Freigabe ab</span><span class="value">${s.videoThreshold}/10</span>${stepper('videoThreshold', 5, 10)}</div>
     </div>
-    <p class="footnote">Am Tag nach der Abgabe hörst du deinen Track nochmal an und bewertest ihn – ab der Video-Freigabe bekommst du einen Video-/TikTok-Auftrag dazu.</p>
+    <p class="footnote">Am Tag nach der Abgabe hörst du deinen Track nochmal an und bewertest ihn. Ab dieser Bewertung geht's weiter: 🎹 Beat → 🎙️ Vocals drauf → 🎤 Song → 🎬 Video/TikTok.</p>
 
     <div class="group-title">Wochenplan – wann hast du Zeit?</div>
     <div class="group glass">
@@ -835,10 +871,12 @@ function renderOrderSheet(o) {
   const subs = [...o.submissions].sort((a, b) => b.version - a.version);
 
   const c = o.concept;
-  const specs = o.type === 'video' ? [
+  const specs = o.type === 'video' || o.type === 'vocals' ? [
     ['Format', c?.format],
-    ['Seitenverhältnis', c?.ratio],
+    c?.ratio && ['Seitenverhältnis', c.ratio],
     ['Länge', c?.length],
+    o.bpm && ['Tempo', `${o.bpm} BPM`],
+    o.key && ['Tonart', o.key],
     o.deadline && ['Deadline', `${fmtDate(o.deadline)}`],
   ].filter(Boolean) : [
     ['Art', `${T.icon} ${T.label}`],
@@ -847,7 +885,7 @@ function renderOrderSheet(o) {
     o.key && ['Tonart', o.key],
     o.mood && ['Vibe', o.mood],
     o.deadline && ['Deadline', `${fmtDate(o.deadline)}`],
-    o.budget && ['Budget', `${o.budget} €`],
+    o.budget && ['Budget', `${o.budget} € ${o.budgetNote || ''}`.trim()],
     o.effort && ['Aufwand', `~${fmtHours(o.effort)}`],
   ].filter(Boolean);
   // Odd number of tiles → stretch the last one; instruments always get a full row.
@@ -857,7 +895,7 @@ function renderOrderSheet(o) {
   return `
     <div class="sheet-head">
       <button class="btn plain" data-action="close-sheet">Schließen</button>
-      <h2>${esc(o.type === 'own' ? 'Projekt' : o.type === 'video' ? 'Video' : o.client)}</h2>
+      <h2 class="sheet-title">${customerOf(o) ? `<span class="mini-avatar">${avatarSvg(customerOf(o))}</span>` : ''}${esc(o.type === 'own' ? 'Projekt' : o.type === 'video' ? 'Video' : o.type === 'vocals' ? 'Vocals' : o.client.split(' – ')[0])}</h2>
       <span style="width:80px;text-align:right"><span class="pill ${due.cls}">${delivered ? '✓' : due.text.replace('Noch ', '')}</span></span>
     </div>
 
@@ -870,7 +908,7 @@ function renderOrderSheet(o) {
         <div class="thread-meta">${fmtDate(o.deliveredAt)}, ${fmtTime(o.deliveredAt)}</div>
         <div class="bubble them">${esc(o.reply)}<br><span class="stars">${'★'.repeat(o.rating || 0)}${'☆'.repeat(5 - (o.rating || 0))}</span></div>` : ''}
     </div>` : `<h2 style="font-size:28px;margin:12px 4px 4px">${esc(orderTitle(o))}</h2>
-      ${o.type === 'video' ? `<div class="thread"><div class="bubble them">🎬 ${esc(o.brief)}</div></div>` : ''}`}
+      ${o.type === 'video' || o.type === 'vocals' ? `<div class="thread"><div class="bubble them">${T.icon} ${esc(o.brief)}</div></div>` : ''}`}
 
     ${o.challenge ? `<div class="challenge glass">
       <div class="challenge-ico">${MODE[o.challenge.mode]?.icon || '🎯'}</div>
@@ -880,16 +918,16 @@ function renderOrderSheet(o) {
         ${o.challenge.done === true ? '<span style="color:var(--green)">✓ Umgesetzt</span>' : o.challenge.done === false ? '<span>Nicht umgesetzt – kommt wieder dran</span>' : ''}</div>
     </div>` : ''}
     ${renderReview(o)}
-    ${o.type === 'video' ? `<button class="btn plain" data-action="open-order" data-id="${o.sourceOrderId}">🎧 Zum Song</button>` : ''}
+    ${o.sourceOrderId ? `<button class="btn plain" data-action="open-order" data-id="${o.sourceOrderId}">🎧 ${o.type === 'vocals' ? 'Zum Beat' : 'Zum Song'}</button>` : ''}
     ${state.video && o.submissions.some((x) => x.id === state.video.subId) ? '<div id="videoSlot"></div>' : ''}
 
     <div class="specs">
       ${specs.map((sp) => `<div class="spec ${sp.wide ? 'wide' : ''}"><span>${sp[0]}</span><b>${esc(sp[1])}</b></div>`).join('')}
     </div>
 
-    ${o.status === 'new' && o.type === 'video' ? `
-      <button class="btn" data-action="accept" data-id="${o.id}">Los geht's 🎬</button>
-      <button class="btn secondary" data-action="reroll-video" data-id="${o.id}" style="margin-top:10px">🎲 Anderes Konzept</button>
+    ${o.status === 'new' && (o.type === 'video' || o.type === 'vocals') ? `
+      <button class="btn" data-action="accept" data-id="${o.id}">Los geht's ${T.icon}</button>
+      <button class="btn secondary" data-action="reroll-concept" data-id="${o.id}" style="margin-top:10px">🎲 Anderes Konzept</button>
     ` : o.status === 'new' ? `
       <button class="btn" data-action="accept" data-id="${o.id}">Auftrag annehmen</button>
       <button class="btn secondary" data-action="decline" data-id="${o.id}" style="margin-top:10px">👎 Gefällt mir nicht – anderen Auftrag</button>
@@ -897,14 +935,15 @@ function renderOrderSheet(o) {
       <div class="section-title" style="margin-top:14px">Versionen <small>${subs.length}</small></div>
       ${subs.length ? subs.map((s) => subRow(o, s)).join('') : `<p class="footnote" style="margin:0 4px 10px">${o.type === 'video'
         ? 'Noch nichts hochgeladen. Schneide das Video (z. B. CapCut) und lade es hier hoch.'
+        : o.type === 'vocals' ? 'Nimm deine Vocals in FL Studio auf, misch sie und exportiere den ganzen Song (MP3/WAV).'
         : 'Noch nichts hochgeladen. Exportiere aus FL Studio (MP3/WAV) und lade die Datei hier hoch.'}</p>`}
-      <button class="btn ${subs.length ? 'secondary' : ''}" data-action="upload" data-id="${o.id}">⬆︎ ${o.type === 'vocal_chain' ? 'Preset / Demo hochladen' : o.type === 'video' ? 'Video hochladen' : 'Datei hochladen'}</button>
+      <button class="btn ${subs.length ? 'secondary' : ''}" data-action="upload" data-id="${o.id}">⬆︎ ${o.type === 'vocal_chain' ? 'Preset / Demo hochladen' : o.type === 'video' ? 'Video hochladen' : o.type === 'vocals' ? 'Song mit Vocals hochladen' : 'Datei hochladen'}</button>
       ${!delivered && subs.length ? `<button class="btn" style="margin-top:10px" data-action="deliver" data-id="${o.id}">${selfMade(o) ? 'Als fertig markieren' : `v${subs[0].version} abgeben`}</button>` : ''}
     `}
 
     <div class="group glass" style="margin-top:22px">
       <label class="row col"><span class="label" style="font-size:13px;color:var(--label-2)">Notizen${o.type === 'video' ? '' : ' (Samples, Plugins, Ideen …)'}</span>
-        <textarea data-note="${o.id}" placeholder="${o.type === 'video' ? 'z. B. Drehorte, Outfits, Shots, CapCut-Effekte …' : 'z. B. Serum Preset „Dark Pluck“, 808 aus Kit X …'}">${esc(o.notes || '')}</textarea></label>
+        <textarea data-note="${o.id}" placeholder="${o.type === 'video' ? 'z. B. Drehorte, Outfits, Shots, CapCut-Effekte …' : o.type === 'vocals' ? 'z. B. Reimideen, Flow, Adlibs, Mic-Einstellungen …' : 'z. B. Serum Preset „Dark Pluck“, 808 aus Kit X …'}">${esc(o.notes || '')}</textarea></label>
     </div>
     <button class="btn danger" data-action="delete-order" data-id="${o.id}" style="margin-top:8px">${o.type === 'own' ? 'Projekt' : 'Auftrag'} löschen</button>
   `;
@@ -915,13 +954,14 @@ function renderReview(o) {
   const r = o.review;
   if (!r || o.deleted) return '';
   const thr = state.settings.videoThreshold;
+  const U = UNLOCK[unlockFor(o)];
   if (r.rating) {
     const free = r.rating >= thr;
     return `<div class="review glass">
       <div class="review-score ${free ? 'free' : ''}">${r.rating}<small>/10</small></div>
-      <div><b>${free ? '🎬 Freigegeben für Videos' : 'Nicht freigegeben – bleibt Übung 💪'}</b>
-        <span>Deine Bewertung vom ${fmtDate(r.ratedAt, { day: 'numeric', month: 'short' })}${free ? '' : `. Ab ${thr}/10 gibt's ein Video.`}</span>
-        ${free && r.videoOrderId ? `<button class="btn small" style="margin-top:10px" data-action="open-order" data-id="${r.videoOrderId}">Zum Video-Auftrag</button>` : ''}</div>
+      <div><b>${free ? `${U.icon} ${U.free}` : 'Nicht freigegeben – bleibt Übung 💪'}</b>
+        <span>Deine Bewertung vom ${fmtDate(r.ratedAt, { day: 'numeric', month: 'short' })}${free ? '' : `. Ab ${thr}/10 gibt's ${U.short === 'Vocals' ? 'einen Vocal-Auftrag' : 'ein Video'}.`}</span>
+        ${free && (r.nextOrderId || r.videoOrderId) ? `<button class="btn small" style="margin-top:10px" data-action="open-order" data-id="${r.nextOrderId || r.videoOrderId}">${U.go}</button>` : ''}</div>
     </div>
     <div class="group glass">
       <label class="row col"><span class="label" style="font-size:13px;color:var(--label-2)">Was nimmst du mit? Was machst du nächstes Mal anders?</span>
@@ -932,7 +972,7 @@ function renderReview(o) {
     return `<div class="review glass">
       <div class="review-score">🔒</div>
       <div><b>${fmtDate(r.opensAt, { weekday: 'long' })} nochmal anhören</b>
-        <span>Erst mit etwas Abstand bewerten – dann hörst du ehrlicher. Ab ${thr}/10 wird der Song fürs Video freigegeben.</span></div>
+        <span>Erst mit etwas Abstand bewerten – dann hörst du ehrlicher. Ab ${thr}/10 ${U.hint}.</span></div>
     </div>`;
   }
   const sub = o.submissions.find((x) => x.id === o.deliveredSubmissionId);
@@ -942,7 +982,7 @@ function renderReview(o) {
   const playing = state.playing?.subId === sub?.id && !audio.paused;
   return `<div class="review glass col">
     <b>🎧 Nochmal komplett anhören & ehrlich bewerten</b>
-    <span>Ab ${thr}/10 wird der Song für Videos/TikToks freigegeben.</span>
+    <span>Ab ${thr}/10 ${U.hint}.</span>
     ${sub ? `<div class="review-listen">
       <button class="play-dot" data-action="play" data-order="${o.id}" data-sub="${sub.id}" aria-label="Abspielen">${playing ? ICON.pause : ICON.play}</button>
       <div class="progress" style="flex:1;margin:0"><i style="width:${pct}%"></i></div>
@@ -1291,21 +1331,23 @@ const actions = {
     o.review.rating = n;
     o.review.ratedAt = Date.now();
     if (n >= state.settings.videoThreshold) {
-      const v = createVideoOrder(o, genOpts());
-      o.review.videoOrderId = v.id;
+      const v = unlockFor(o) === 'vocals' ? createVocalOrder(o, genOpts()) : createVideoOrder(o, genOpts());
+      o.review.nextOrderId = v.id;
       await saveOrder(v);
     }
     if (state.playing?.orderId === o.id) audio.pause();
     await saveOrder(o);
-    rewardToast(before, n >= state.settings.videoThreshold ? '🎬 Freigegeben – Video-Auftrag ist da'
+    rewardToast(before, n >= state.settings.videoThreshold
+      ? (unlockFor(o) === 'vocals' ? '🎙️ Freigegeben – jetzt Vocals drauf!' : '🎬 Freigegeben – Video-Auftrag ist da')
       : `${n}/10 – nächstes Mal knackst du die ${state.settings.videoThreshold} 💪`);
     render(); renderSheet();
   },
 
-  async 'reroll-video'(el) {
+  async 'reroll-concept'(el) {
     const o = state.orders.find((x) => x.id === el.dataset.id);
     const src = state.orders.find((x) => x.id === o.sourceOrderId) || o;
-    const fresh = createVideoOrder(src, { concept: rerollConcept(o), ...genOpts() });
+    const make = o.type === 'vocals' ? createVocalOrder : createVideoOrder;
+    const fresh = make(src, { concept: rerollConcept(o), ...genOpts() });
     Object.assign(o, { brief: fresh.brief, concept: fresh.concept, mood: fresh.mood });
     await saveOrder(o);
     renderSheet();
@@ -1330,12 +1372,13 @@ const actions = {
     const item = ITEMS[el.dataset.id];
     const p = progress();
     if (!item || p.coins < item.price) return toast('Nicht genug Coins 🪙');
+    if (item.needs?.delivered && p.delivered < item.needs.delivered) return toast(`🔒 Erst ${item.needs.delivered} Abgaben`);
     if (!confirm(`${item.name} für ${item.price} 🪙 kaufen?`)) return;
     state.profile.owned = [...state.profile.owned, item.id];
     if (item.cat === 'frames') state.profile.frame = item.id;
     if (item.cat === 'banners') state.profile.banner = item.id;
     await saveProfile();
-    toast(`${item.emoji || '✨'} ${item.name} gekauft!`);
+    toast(item.id === 'vip-chaya' ? '👑 LEGENDÄR! Chaya ist jetzt deine VIP-Managerin 💅' : `${item.emoji || (item.cat === 'garage' ? '🏎️' : '✨')} ${item.name} gekauft!`);
     renderSheet(); render();
   },
   async equip(el) {

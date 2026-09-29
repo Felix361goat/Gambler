@@ -422,6 +422,30 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
 .shop-item .btn.small { width: 100%; padding: 0 8px; }
 .shop-emoji { font-size: 40px; line-height: 1.1; }
 
+/* Customers */
+.avatar { overflow: hidden; }
+.avatar svg, .mini-avatar svg, .k-item svg, .vip-portrait svg { width: 100%; height: 100%; display: block; }
+.order-client .arch { font-size: 12px; font-weight: 500; color: var(--label-2); margin-left: 4px; }
+.sheet-title { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; }
+.mini-avatar { flex: none; width: 30px; height: 30px; border-radius: 50%; overflow: hidden; display: inline-block; }
+.mini-avatar.big { width: 44px; height: 44px; }
+.bubble { white-space: pre-line; }
+.vip-hype { display: flex; align-items: flex-end; gap: 10px; border-radius: var(--radius); padding: 12px 14px; margin-bottom: 14px; }
+.vip-hype .bubble { margin: 0; }
+.vip-card { display: flex; gap: 14px; align-items: center; border-radius: var(--radius); padding: 14px 16px; }
+.vip-card b { display: block; font-size: 18px; }
+.vip-card span { font-size: 13px; color: var(--label-2); }
+.vip-portrait { flex: none; width: 110px; height: 110px; border-radius: 50%; overflow: hidden; box-shadow: 0 0 0 3px #fbbf24, 0 0 26px rgba(251,191,36,.7); }
+.garage { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.car { border-radius: 18px; padding: 10px 10px 12px; text-align: center; }
+.car svg, .shop-car svg { width: 100%; height: auto; display: block; }
+.car b { font-size: 13px; display: block; margin-top: 4px; }
+.shop-car { width: 100%; }
+.shop-grid.legendary { grid-template-columns: 1fr; }
+.kartei { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; border-radius: var(--radius); padding: 12px; }
+.k-item { aspect-ratio: 1; border-radius: 50%; overflow: hidden; }
+.k-item.unknown { background: var(--fill); display: grid; place-items: center; color: var(--label-3); font-weight: 700; font-size: 13px; }
+
 /* Toast */
 .toast {
   position: fixed; left: 50%; transform: translateX(-50%); top: calc(var(--safe-top) + 10px); z-index: 60;

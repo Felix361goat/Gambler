@@ -44,7 +44,55 @@ export const SHOP = {
       { id: 'obj-trophy', name: 'Grammy-Pokal', emoji: '🏆', price: 1000 },
     ],
   },
+  garage: {
+    label: 'Garage',
+    items: [
+      { id: 'car-golf', name: 'VW Golf GTI', shape: 'hatch', color: '#dc2626', price: 800 },
+      { id: 'car-m3', name: 'BMW M3', shape: 'sedan', color: '#2563eb', price: 1500 },
+      { id: 'car-g63', name: 'Mercedes-AMG G 63', shape: 'suv', color: '#111827', price: 3000 },
+      { id: 'car-911', name: 'Porsche 911 GT3', shape: 'sport', color: '#e5e7eb', price: 5000 },
+      { id: 'car-r8', name: 'Audi R8', shape: 'super', color: '#6b7280', price: 6000 },
+      { id: 'car-amggt', name: 'Mercedes-AMG GT Black Series', shape: 'sport', color: '#f97316', price: 7500 },
+      { id: 'car-huracan', name: 'Lamborghini Huracán', shape: 'super', color: '#84cc16', price: 9000 },
+      { id: 'car-720s', name: 'McLaren 720S', shape: 'super', color: '#fb923c', price: 10000 },
+      { id: 'car-aventador', name: 'Lamborghini Aventador', shape: 'super', color: '#a855f7', price: 12000 },
+      { id: 'car-sf90', name: 'Ferrari SF90', shape: 'super', color: '#ef4444', price: 13000 },
+      { id: 'car-chiron', name: 'Bugatti Chiron', shape: 'hyper', color: '#1d4ed8', price: 18000 },
+    ],
+  },
+  legendary: {
+    label: 'Legendär',
+    items: [
+      // ~3 years of 2 orders/week. Needs coins *and* deliveries.
+      { id: 'vip-chaya', name: 'BBL Chaya – VIP-Managerin', price: 20000, needs: { delivered: 150 } },
+    ],
+  },
 };
+
+// Side-view car (viewBox 120×50) from a shape + colour.
+const CAR_BODY = {
+  hatch: ['M8 38 L10 27 L30 24 L41 12 L88 12 L99 24 L110 27 L111 38Z', 'M44 15 L86 15 L94 24 L36 24Z'],
+  sedan: ['M6 38 L8 29 L30 26 L43 15 L78 15 L93 26 L112 28 L114 38Z', 'M46 18 L76 18 L88 26 L36 26Z'],
+  suv: ['M8 38 L8 11 L98 11 L106 22 L112 24 L112 38Z', 'M14 14 L50 14 L50 23 L14 23Z M54 14 L94 14 L101 23 L54 23Z'],
+  sport: ['M8 38 Q9 28 28 26 Q46 12 70 14 Q96 18 111 31 L112 38Z', 'M44 22 Q56 15 70 17 Q84 20 90 26 L38 26Z'],
+  super: ['M6 38 L12 30 L40 24 L60 15 L82 16 L108 29 L113 38Z', 'M46 24 L61 17 L79 18 L90 25Z'],
+  hyper: ['M6 38 Q8 30 30 27 Q50 14 74 15 Q100 18 112 32 L113 38Z', 'M46 25 Q58 17 74 18 Q88 20 94 26Z'],
+};
+export function carSvg(item) {
+  const [body, glass] = CAR_BODY[item.shape] || CAR_BODY.sport;
+  const wheel = (x) => `<circle cx="${x}" cy="38" r="8.5" fill="#111"/><circle cx="${x}" cy="38" r="4.5" fill="#9ca3af"/><circle cx="${x}" cy="38" r="1.5" fill="#111"/>`;
+  return `<svg viewBox="0 0 120 50" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="stroke:none;fill:none;stroke-width:1">
+    <ellipse cx="60" cy="46" rx="54" ry="3" fill="rgba(0,0,0,.25)"/>
+    <path d="${body}" fill="${item.color}"/>
+    <path d="${body}" fill="url(#shine-${item.id})"/>
+    <path d="${glass}" fill="#0f172a" opacity=".85"/>
+    <path d="M10 33 L110 33" stroke="rgba(0,0,0,.18)" stroke-width="1"/>
+    <rect x="${item.shape === 'suv' ? 107 : 106}" y="30" width="6" height="3" rx="1.5" fill="#fef08a"/>
+    <rect x="6" y="31" width="5" height="3" rx="1.5" fill="#ef4444"/>
+    ${wheel(item.shape === 'suv' ? 28 : 30)}${wheel(item.shape === 'suv' ? 92 : 91)}
+    <defs><linearGradient id="shine-${item.id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".35"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".2"/></linearGradient></defs>
+  </svg>`;
+}
 
 export const ITEMS = Object.fromEntries(
   Object.entries(SHOP).flatMap(([cat, c]) => c.items.map((i) => [i.id, { ...i, cat }]))
@@ -56,6 +104,7 @@ export const TROPHIES = [
   { id: 'first', icon: '🎉', name: 'Erste Abgabe', desc: 'Deinen ersten Auftrag abgegeben', check: (s) => [s.delivered, 1] },
   { id: 'ontime5', icon: '⏰', name: 'Pünktlich', desc: '5 Aufträge pünktlich abgegeben', check: (s) => [s.onTime, 5] },
   { id: 'ten', icon: '💯', name: 'Perfekt', desc: 'Einen Track mit 10/10 bewertet', check: (s) => [s.tens, 1] },
+  { id: 'song1', icon: '🎙️', name: 'Artist', desc: 'Vocals auf deinen eigenen Beat', check: (s) => [s.songs, 1] },
   { id: 'video1', icon: '🎬', name: 'Regisseur', desc: 'Dein erstes Video fertig', check: (s) => [s.videos, 1] },
   { id: 'streak4', icon: '🔥', name: 'Dranbleiber', desc: '4 Wochen in Folge abgegeben', check: (s) => [s.streak, 4] },
   { id: 'skills10', icon: '🧠', name: 'Wissbegierig', desc: '10 verschiedene Skills gelernt', check: (s) => [s.skills, 10] },
@@ -63,6 +112,8 @@ export const TROPHIES = [
   { id: 'genres', icon: '🌍', name: 'Genre-Hopper', desc: 'In 5 Genres mind. 8/10 geschafft', check: (s) => [s.goodGenres, 5] },
   { id: 'level5', icon: '⭐️', name: 'Aufsteiger', desc: 'Level 5 erreicht', check: (s) => [s.level, 5] },
   { id: 'twenty', icon: '🏅', name: 'Produzent', desc: '20 Aufträge abgegeben', check: (s) => [s.delivered, 20] },
+  { id: 'clients25', icon: '📇', name: 'Netzwerker', desc: '25 verschiedene Kunden bedient', check: (s) => [s.clients, 25] },
+  { id: 'clientsAll', icon: '🌐', name: 'Jeder kennt dich', desc: 'Alle Kunden mindestens einmal bedient', check: (s) => [s.clients, s.clientsTotal] },
 ];
 export const TROPHY_BONUS = 50;
 

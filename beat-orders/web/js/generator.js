@@ -1,3 +1,5 @@
+import { CUSTOMERS, CUSTOMER_BY_ID, writeBrief, replyFor, budgetFor } from './customers.js';
+
 // Generates realistic "client" orders and decides when the next one arrives.
 // Everything here is plain data + pure functions, so it's easy to extend later
 // (own genres, instruments, clients, brief templates …).
@@ -9,7 +11,8 @@ export const ORDER_TYPES = {
   hook:         { label: 'Hook / Feature', short: 'Hook', icon: '🪝', days: [3, 6], effort: 3, budget: [60, 200] },
   remix:        { label: 'Remix / Flip', short: 'Remix', icon: '🔁', days: [4, 8], effort: 4, budget: [50, 180] },
   own:          { label: 'Eigenes Projekt', short: 'Eigenes', icon: '⭐️', days: [0, 0], effort: 0, budget: [0, 0], manualOnly: true },
-  // Only unlocked by your own rating (see createVideoOrder) – never random.
+  // Only unlocked by your own rating – never random.
+  vocals:       { label: 'Vocals drauf', short: 'Song', icon: '🎙️', days: [5, 9], effort: 4, budget: [0, 0], manualOnly: true },
   video:        { label: 'Video / TikTok', short: 'Video', icon: '🎬', days: [5, 8], effort: 3, budget: [0, 0], manualOnly: true },
 };
 
@@ -30,37 +33,7 @@ export const GENRES = {
 
 const MOODS = ['dunkel', 'melancholisch', 'aggressiv', 'chillig', 'euphorisch', 'emotional', 'bouncy', 'verträumt', 'hart', 'sommerlich'];
 
-const CLIENTS = [
-  'Lil Nova', 'Mara K.', 'YVNG Serif', 'Jules Beaumont', 'OG Tempo', 'Sina Vale', 'Kairo', 'Deniz 44',
-  'Luna Rae', 'Blackwave Records', 'Theo Mont', 'Ayo Blessing', 'Nightshift Collective', 'Emre B.',
-  'Kid Zephyr', 'Nadia Sol', 'Rico Stacks', 'Velvet Tape', 'Jonah Grey', 'Milla Frost',
-];
-
 const VOICES = ['tiefe Männerstimme', 'hohe Frauenstimme', 'raue Rap-Stimme', 'weiche R&B-Stimme', 'Autotune-lastige Stimme'];
-
-const BRIEFS = {
-  instrumental: [
-    'Yo! Brauche einen {genre}-Beat, Vibe eher {mood}, so um die {bpm} BPM. Gerne mit {i1} und {i2}. Ist für meine nächste Single 🙏',
-    'Hey, ich suche ein {genre} Instrumental – eher {mood}. {i1} wäre krass, {i2} optional. Tonart gern {key}.',
-    'Kannst du mir was im {genre}-Style bauen? Soll {mood} klingen, {bpm} BPM, Fokus auf {i1}. Hook-Part sollte Platz für Vocals lassen.',
-  ],
-  full_song: [
-    'Ich will einen kompletten Song von dir: {genre}, {mood}, ~{bpm} BPM. Beat + deine Vocals (2 Parts + Hook). Thema: {theme}.',
-    'Full Song bitte! {genre} mit {i1}. Du rappst/singst drauf, Thema „{theme}“. Vibe: {mood}.',
-  ],
-  vocal_chain: [
-    'Kannst du mir eine Vocal Chain für {genre} bauen? Meine Stimme: {voice}. Bitte als FL-Studio-Preset + kurzes Vorher/Nachher-Demo.',
-    'Brauche eine saubere Vocal Chain (EQ, Comp, De-Esser, Reverb/Delay) für {voice}. Style: {genre}, eher {mood}.',
-  ],
-  hook: [
-    'Ich hab einen {genre}-Track fertig, mir fehlt nur die Hook. Eingängig, 8 Bars, Vibe {mood}. Thema: {theme}.',
-    'Feature-Anfrage: 16 Bars auf meinem {genre}-Beat ({bpm} BPM). Vibe {mood}, Thema „{theme}“.',
-  ],
-  remix: [
-    'Mach mal einen {genre}-Remix von einem Song, den du feierst – Vibe {mood}, {bpm} BPM. Überrasch mich!',
-    'Flip ein Sample deiner Wahl in {genre}. {i1} rein, Tempo ~{bpm}. Vibe: {mood}.',
-  ],
-};
 
 const THEMES = ['Nachtfahrt durch die Stadt', 'Neuanfang', 'Loyalität', 'Herzschmerz', 'Hustle neben dem 9-to-5', 'Sommer', 'Heimat', 'Erfolg', 'Selbstzweifel', 'Freundschaft'];
 
@@ -159,6 +132,7 @@ const SKILL_AREAS = {
   remix: ['Sampling', 'Arrangement', 'Sound Design', 'Mastering'],
   own: ['Drums', 'Sound Design', 'Musiktheorie', 'Sampling', 'Einspielen', 'Cover-Art'],
   video: ['Video', 'Release & Social', 'Cover-Art'],
+  vocals: ['Vocals', 'Songwriting', 'Mixing', 'Cover-Art'],
 };
 
 // XP → level. Level decides how hard the challenges get.
@@ -272,9 +246,38 @@ export function createVideoOrder(song, { concept, history = [], settings } = {})
 }
 
 export const rerollConcept = (order) => {
-  const others = VIDEO_CONCEPTS.filter((c) => c.idea !== order.concept?.idea);
-  return pick(others);
+  const list = order.type === 'vocals' ? VOCAL_CONCEPTS : VIDEO_CONCEPTS;
+  return pick(list.filter((c) => c.idea !== order.concept?.idea));
 };
+
+// ---- Vocal concepts (a beat you rated ≥ threshold becomes a song) --------
+const VOCAL_CONCEPTS = [
+  { format: '2 Parts + Hook', length: '16 + 8 + 16 Bars', idea: 'Schreib 2 Parts und eine Hook auf deinen Beat „{song}“. Thema: {theme}.' },
+  { format: 'Hook + 1 Part', length: '8 + 16 Bars', idea: 'Kurz und knackig: eine Hook, die hängen bleibt, und ein Part auf „{song}“. Thema frei.' },
+  { format: 'Storytelling', length: '3 Parts, keine Hook', idea: 'Erzähl auf „{song}“ eine Geschichte mit Anfang, Mitte und Ende. Thema: {theme}.' },
+  { format: 'Melodisch', length: 'Hook + 2 Parts', idea: 'Sing/rappe melodisch auf „{song}“ – mit Autotune/Newtone und Doubles. Thema: {theme}.' },
+  { format: 'Freestyle → Song', length: '1 Take + Überarbeitung', idea: 'Nimm auf „{song}“ zuerst einen Freestyle auf, such dir die besten Zeilen raus und bau daraus eine Hook.' },
+  { format: 'Feature-Style', length: 'Hook + Part + Platz für Feature', idea: 'Schreib Hook und einen Part auf „{song}“ und lass Platz für ein Feature (16 Bars). Thema: {theme}.' },
+];
+
+export function createVocalOrder(beat, { concept, history = [], settings } = {}) {
+  const now = Date.now();
+  const c = concept || pick(VOCAL_CONCEPTS);
+  const title = beat.title || `${ORDER_TYPES[beat.type]?.label || 'Beat'} für ${beat.client}`;
+  return {
+    id: uid(), client: 'Du', type: 'vocals', genre: beat.genre,
+    title: `Vocals: ${title}`,
+    brief: fill(c.idea, { song: title, theme: pick(THEMES) }),
+    concept: c, sourceOrderId: beat.id,
+    challenge: pickChallenge('vocals', { history }),
+    effort: ORDER_TYPES.vocals.effort,
+    bpm: beat.bpm, key: beat.key, mood: beat.mood, instruments: [],
+    budget: 0, createdAt: now,
+    deadline: deadlineFor(ORDER_TYPES.vocals.effort, now, settings?.week),
+    status: 'new', submissions: [], deliveredAt: null, deliveredSubmissionId: null,
+    reply: null, rating: null, updatedAt: now,
+  };
+}
 
 // Self-review opens on the calendar day after delivery.
 export function reviewOpensAt(deliveredAt) {
@@ -346,19 +349,26 @@ export function generateOrder(settings, { type, at, history = [] } = {}) {
     theme: pick(THEMES), voice: pick(VOICES),
   };
   const now = at ?? Date.now();
+  // Customer: prefer people you haven't worked with recently.
+  const recentIds = new Set(history.slice(-30).map((o) => o.customerId));
+  const freshCustomers = CUSTOMERS.filter((c) => !recentIds.has(c.id));
+  const customer = pick(freshCustomers.length ? freshCustomers : CUSTOMERS);
+  const { budget, note } = budgetFor(customer, rand(T.budget[0], T.budget[1]));
   return {
     id: uid(),
-    client: pick(CLIENTS),
+    client: customer.name,
+    customerId: customer.id,
+    budgetNote: note,
     type: t,
     genre,
     bpm: t === 'vocal_chain' ? null : bpm,
     key: t === 'vocal_chain' ? null : vars.key,
     mood: vars.mood,
     instruments: t === 'vocal_chain' ? [] : [i1, i2],
-    brief: fill(pick(BRIEFS[t]), vars),
+    brief: writeBrief(customer, t, vars),
     challenge: pickChallenge(t, { history }),
     effort: T.effort,
-    budget: Math.round(rand(T.budget[0], T.budget[1]) / 5) * 5,
+    budget,
     createdAt: now,
     deadline: deadlineFor(T.effort, now, settings.week),
     status: 'new', // new → in_progress → delivered
@@ -385,10 +395,12 @@ export function createOwnProject({ title, genre, history = [] }) {
 }
 
 export function clientReply(order) {
+  const c = CUSTOMER_BY_ID[order.customerId];
   const late = order.deadline && order.deliveredAt > order.deadline;
-  if (late) return { reply: pick(REPLIES.late), rating: randInt(2, 4) };
+  if (late) return { reply: replyFor(c, 'late') || pick(REPLIES.late), rating: randInt(2, 4) };
   const great = Math.random() < 0.55;
-  return great ? { reply: pick(REPLIES.great), rating: 5 } : { reply: pick(REPLIES.good), rating: 4 };
+  return great ? { reply: replyFor(c, 'great') || pick(REPLIES.great), rating: 5 }
+    : { reply: replyFor(c, 'good') || pick(REPLIES.good), rating: 4 };
 }
 
 // ---- Scheduling ---------------------------------------------------------

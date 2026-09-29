@@ -44,11 +44,13 @@ Handy per USB anschließen (Entwickleroptionen + **USB-Debugging** an) und in An
 | **Upload** | Mehrere Versionen pro Auftrag (v1, v2 …), z. B. MP3/WAV aus FL Studio. Für Vocal Chains gehen auch Presets/beliebige Dateien. |
 | **Abgabe** | Eine Version abgeben. Der Kunde antwortet mit Feedback und Sternen, pünktlich oder zu spät zählt. |
 | **Nochmal anhören** | Am **Tag nach der Abgabe** wird die Bewertung freigeschaltet (mit Erinnerung am Abend). Du musst den Track erst (fast) ganz anhören (vorspulen zählt nicht), dann bewertest du ihn ehrlich von **1 bis 10**. |
-| **Videos / TikToks** | Ab **9/10** (in den Einstellungen änderbar) wird der Song freigegeben und du bekommst automatisch einen **🎬 Video-Auftrag**: TikTok/Reel, YouTube Short, Visualizer, Lyric- oder Musikvideo, mit Konzept, Format, Länge und Deadline. Konzept neu würfeln geht auch. Videos lädst du hoch und schaust sie in der App an. Unter 9 bleibt der Track Übung. |
+| **Beat → Song → Video** | Bewertest du einen **Beat ab 9/10**, bekommst du einen **🎙️ Vocal-Auftrag**: Text schreiben und auf deinem eigenen Beat aufnehmen, mit Konzept (z. B. 2 Parts + Hook, Storytelling, melodisch). Bewertest du den fertigen **Song ab 9/10**, kommt ein **🎬 Video-Auftrag** (TikTok/Reel, Short, Visualizer, Lyric- oder Musikvideo). Unter 9 bleibt es Übung. |
+| **Kunden** | **103 Kunden** in 12 Typen, jeder mit gezeichnetem Profilbild und eigenem, übertriebenem Schreibstil: Baddies/BBL-Chayas („slayyy 💅“), Pensionist:innen („Gesendet von meinem iPad“), Kinder („+1000 aura 🗿“), Gamer (milfhunter & Co. mit Headset), Straßenrapper, Fitness-Bros, Crypto-Bros, Wiener Grantler, Mamas, Esoterik, Business, Hipster. Budget und Antworten passen zum Typ. Eine **Kundenkartei** sammelt, wen du schon bedient hast. |
 | **Wochenplan** | Pro Wochentag ein Zeitfenster, in dem du frei hast (Standard: Vollzeitjob, Training Mo/Di/Do, Match am Wochenende). Aufträge kommen, wenn deine freie Zeit anfängt. Die **Deadline wird aus deinen freien Stunden berechnet** (Aufwand × 2,5), und die App zeigt, wie viel deiner Freizeit eingeplant ist. |
 | **Ablehnen** | Gefällt dir ein Auftrag nicht? „👎 anderen Auftrag“ gibt sofort einen neuen, so oft du willst. Abgelehnte Genres und Arten kommen danach seltener. Die Challenge lässt sich auch einzeln neu würfeln. |
 | **Lernen** | Jeder Auftrag hat eine Lern-Challenge in einem von 13 Bereichen (Drums, Mixing, Sampling, Vocals … bis Mastering, Einspielen, Cover-Art, Release & Social). **📈 Aufbauen:** schwierigere Techniken dort, wo du laut deinen Bewertungen stark bist. **🧭 Neuland:** ein Bereich, den du noch nie gemacht hast. |
-| **Profil & Shop** | Level, XP und Wochen-Serie. **Coins** gibt es für Abgaben, Pünktlichkeit, Challenges, gute Bewertungen und Trophäen. Im Shop kaufst du Profilbild-Rahmen (z. B. Regenbogen, Feuer, Neon), Banner und Objekte für **„Mein Studio“**. Dazu kommen 10 Trophäen und eine Stärken/Schwächen-Übersicht. |
+| **Profil & Shop** | Level, XP und Wochen-Serie. **Coins** gibt es für Abgaben, Pünktlichkeit, Challenges, gute Bewertungen und Trophäen. Im Shop kaufst du Profilbild-Rahmen (z. B. Regenbogen, Feuer, Neon), Banner, Objekte für **„Mein Studio“** und Autos für die **Garage** (Golf GTI → BMW M3 → G 63 → 911 → R8 → Lambo → McLaren → Ferrari → Bugatti). Dazu kommen 13 Trophäen und eine Stärken/Schwächen-Übersicht. |
+| **👑 Legendär** | Die **BBL Chaya als VIP-Managerin**: 20.000 🪙 **und** 150 Abgaben, also rund 3 Jahre konstant dranbleiben. Danach hypt sie dich im Profil und auf der Startseite. |
 | **Bibliothek** | Alle Uploads nach Monat gruppiert, filterbar nach Art und Genre, mit Suche und Stats (abgegeben, Pünktlichkeit, Uploads). |
 | **Player** | Mini-Player im Apple-Music-Stil, Steuerung auf dem Sperrbildschirm (Media Session), Teilen über das iOS-Share-Sheet. |
 | **Handy** | Liquid-Glass-Design, Dark Mode, eigenes App-Icon, Vollbild, Mitteilungen bei neuen Aufträgen (Android-App: auch bei geschlossener App) plus Erinnerung am Abgabetag, Android-Zurück-Taste, offline nutzbar. |
@@ -107,7 +109,9 @@ beat-orders/
 │   ├── css/app.css         Liquid-Glass-Design, Light und Dark Mode
 │   └── js/
 │       ├── app.js          UI, Aktionen, Player, Uploads
-│       ├── generator.js    Auftrags-Generator: Genres, Instrumente, Kunden, Texte, Zeitplan
+│       ├── generator.js    Auftrags-Generator: Genres, Challenges, Stärken, Zeitplan
+│       ├── customers.js    103 Kunden: Typen, Schreibstile, Antworten, Avatar-Zeichner
+│       ├── shop.js         Coins, Shop (Rahmen, Banner, Studio, Garage, Legendär), Trophäen
 │       ├── native.js       Android-Brücke: Mitteilungen, Teilen, Zurück-Taste
 │       ├── db.js           Lokale Datenbank (IndexedDB)
 │       └── cloud.js        Supabase-Sync (Aufträge und Dateien)
@@ -118,7 +122,7 @@ beat-orders/
 ```
 
 **Deine Musik anpassen:** Genres (BPM-Bereiche, Tonarten, Instrumente), Kundennamen
-und Auftragstexte stehen als einfache Listen oben in `web/js/generator.js`.
+und Auftragstexte stehen als einfache Listen oben in `web/js/generator.js`. Kunden und ihre Texte liegen in `web/js/customers.js`.
 
 ## Bekannte Grenzen und nächste Schritte
 
