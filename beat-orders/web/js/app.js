@@ -3,12 +3,13 @@ import {
   ORDER_TYPES, GENRES, DEFAULT_SETTINGS, generateOrder, createOwnProject,
   clientReply, nextArrival, uid, createVideoOrder, createVocalOrder, rerollConcept, reviewOpensAt,
   SKILLS, levelInfo, analyze, pickChallenge, windowOn, freeMinutesPerWeek,
+  createExpertOrder, createBossOrder, verdictReply, isFan, EXPERT_MIN,
 } from './generator.js';
-import { SHOP, ITEMS, TROPHIES, TROPHY_BONUS, orderCoins, DEFAULT_PROFILE, carSvg } from './shop.js';
+import { SHOP, ITEMS, TROPHIES, TROPHY_BONUS, orderCoins, DEFAULT_PROFILE, carSvg, EXPERT_UNLOCK_VALUE, BOSS_UNLOCK } from './shop.js';
 import {
   ensureAudioGraph, resumeAudio, createVisualizer, startRecording, stopRecording, isRecording,
 } from './visualizer.js';
-import { CUSTOMERS, CUSTOMER_BY_ID, ARCHETYPES, avatarSvg, vipAvatar, VIP_LINES } from './customers.js';
+import { CUSTOMERS, CUSTOMER_BY_ID, ARCHETYPES, EXPERTS, BOSS, avatarSvg, vipAvatar, VIP_LINES } from './customers.js';
 import { cloud } from './cloud.js';
 import {
   isNative, App, LocalNotifications, notifId, requestNotificationPermission, scheduleAll, shareBlob,
@@ -68,6 +69,7 @@ function orderXp(o) {
   if (o.deadline && o.deliveredAt <= o.deadline) xp += 5;
   if (o.challenge?.done) xp += 10;
   if (o.review?.rating) xp += o.review.rating + (o.review.rating >= state.settings.videoThreshold ? 10 : 0);
+  if (o.accepted) xp += o.tier === 'boss' ? 300 : 40;
   return xp;
 }
 const weekStart = (ts) => {
@@ -98,7 +100,9 @@ function progress() {
     streak, skills: skills.size, level: info.level,
     areas: new Set(done.filter((o) => o.challenge?.done).map((o) => o.challenge.area)).size,
     goodGenres: Object.values(genreAvg).filter((a) => a.reduce((x, y) => x + y, 0) / a.length >= 8).length,
-    clients: new Set(done.map((o) => o.customerId).filter(Boolean)).size,
+    clients: new Set(done.map((o) => o.customerId).filter((id) => CUSTOMER_BY_ID[id] && !o_isTier(id))).size,
+    expertsAccepted: done.filter((o) => o.tier === 'expert' && o.accepted).length,
+    bossBeaten: done.filter((o) => o.tier === 'boss' && o.accepted).length,
     clientsTotal: CUSTOMERS.length,
   };
   const trophies = TROPHIES.map((t) => { const [cur, goal] = t.check(tstats); return { ...t, cur: Math.min(cur, goal), goal, won: cur >= goal }; });
@@ -106,6 +110,31 @@ function progress() {
   const spent = state.profile.owned.reduce((a, id) => a + (ITEMS[id]?.price || 0), 0);
   return { ...info, streak, skills, trophies, coins: earned - spent, delivered: tstats.delivered, served: new Set(done.map((o) => o.customerId).filter(Boolean)) };
 }
+const o_isTier = (id) => /^(expert|boss):/.test(id);
+
+// ---- Experts & Boss unlocks ----------------------------------------------
+function assetInfo() {
+  const items = state.profile.owned.map((id) => ITEMS[id]).filter(Boolean);
+  const cars = items.filter((i) => i.cat === 'garage');
+  const homes = items.filter((i) => i.cat === 'homes');
+  const value = [...cars, ...homes].reduce((a, i) => a + i.price, 0);
+  return { cars, homes, value };
+}
+const expertsUnlocked = () => { const a = assetInfo(); return a.cars.length > 0 && a.homes.length > 0 && a.value >= EXPERT_UNLOCK_VALUE; };
+function bossInfo() {
+  const live = state.orders.filter((o) => !o.deleted);
+  const first = live.reduce((m, o) => Math.min(m, o.createdAt), Date.now());
+  const days = Math.floor((Date.now() - first) / DAY);
+  const delivered = live.filter((o) => o.status === 'delivered' && !selfMade(o)).length;
+  const experts = live.filter((o) => o.tier === 'expert' && o.accepted).length;
+  const ok = days >= BOSS_UNLOCK.days && delivered >= BOSS_UNLOCK.delivered && experts >= BOSS_UNLOCK.expertsAccepted;
+  return { days, delivered, experts, ok };
+}
+const TIER = {
+  expert: { badge: '🎖️ EXPERTE', label: 'Experte' },
+  boss: { badge: '💀 ULTRA-BOSS', label: 'Ultra-Boss' },
+};
+
 const genOpts = () => ({ history: state.orders.filter((o) => !o.deleted), settings: state.settings });
 
 // Toast the XP/coins/trophies a change brought ("before" = progress() before it).
@@ -242,7 +271,17 @@ async function runSync(quiet) {
 const activeCount = () => state.orders.filter((o) => isActive(o) && !selfMade(o)).length;
 
 async function newPending(from = Date.now()) {
-  const p = generateOrder(state.settings, { at: nextArrival(state.settings, from), ...genOpts() });
+  const opts = { at: nextArrival(state.settings, from), ...genOpts() };
+  const live = state.orders.filter((o) => !o.deleted);
+  const lastBoss = live.filter((o) => o.tier === 'boss').reduce((m, o) => Math.max(m, o.createdAt), 0);
+  let p;
+  if (bossInfo().ok && !live.some((o) => o.tier === 'boss' && isActive(o)) && Date.now() - lastBoss > 60 * DAY && Math.random() < 0.25) {
+    p = createBossOrder(state.settings, opts);
+  } else if (expertsUnlocked() && !live.some((o) => o.tier === 'expert' && isActive(o)) && Math.random() < 0.3) {
+    p = createExpertOrder(state.settings, opts);
+  } else {
+    p = generateOrder(state.settings, opts);
+  }
   await db.set('pendingOrder', p);
   return p;
 }
@@ -387,11 +426,12 @@ function orderCard(o) {
     : reviewOpen(o) ? '<span class="pill accent">Bewerten</span>'
     : reviewWaiting(o) ? '<span class="pill">🔒 Morgen</span>'
     : o.review?.rating ? `<span class="pill ${o.review.rating >= thr ? 'green' : ''}">${o.review.rating}/10${o.review.rating >= thr ? ` ${UNLOCK[unlockFor(o)].icon}` : ''}</span>` : '';
-  return `<button class="card glass" data-action="open-order" data-id="${o.id}" style="display:block;width:100%;text-align:left">
+  return `<button class="card glass ${o.tier ? `tier-${o.tier}` : ''}" data-action="open-order" data-id="${o.id}" style="display:block;width:100%;text-align:left">
+    ${o.tier ? `<div class="tier-badge">${TIER[o.tier].badge} · mind. ${o.minRating}/10</div>` : ''}
     <div class="order-top">
-      <div class="avatar" style="background:${gradient(o.type === 'video' ? o.title : o.client)}">${selfMade(o) ? T.icon : customerOf(o) ? avatarSvg(customerOf(o)) : esc(initials(o.client))}</div>
+      <div class="avatar ${o.tier ? `ring-${o.tier}` : ''}" style="background:${gradient(o.type === 'video' ? o.title : o.client)}">${selfMade(o) ? T.icon : customerOf(o) ? avatarSvg(customerOf(o)) : esc(initials(o.client))}</div>
       <div class="order-meta">
-        <div class="order-client">${esc(selfMade(o) ? orderTitle(o) : o.client)}${customerOf(o) ? ` <small class="arch">${esc(ARCHETYPES[customerOf(o).arch].label)}</small>` : ''}</div>
+        <div class="order-client">${esc(selfMade(o) ? orderTitle(o) : o.client)}${customerOf(o) ? ` <small class="arch">${esc(ARCHETYPES[customerOf(o).arch].label)}${!o.tier && isFan(o.customerId, state.orders.filter((x) => x.id !== o.id)) ? ' · ⭐ Stammkunde' : ''}</small>` : ''}</div>
         <div class="order-sub">${T.icon} ${esc(T.label)} · ${esc(o.genre)}${o.bpm ? ` · ${o.bpm} BPM` : ''}</div>
       </div>
       ${status}
@@ -612,6 +652,7 @@ function renderProfile() {
   const rated = done.filter((o) => o.review?.rating);
   const owned = state.profile.owned.map((id) => ITEMS[id]).filter((i) => i?.cat === 'studio');
   const cars = state.profile.owned.map((id) => ITEMS[id]).filter((i) => i?.cat === 'garage');
+  const homes = state.profile.owned.map((id) => ITEMS[id]).filter((i) => i?.cat === 'homes');
   const chips = (list, cls) => list.map((x) => `<span class="pill ${cls}">${esc(x)}</span>`).join('');
   return `
     <div class="profile-head">
@@ -653,6 +694,12 @@ function renderProfile() {
     ${cars.length ? `<div class="garage">${cars.map((c) => `<div class="car glass">${carSvg(c)}<b>${esc(c.name)}</b></div>`).join('')}</div>`
       : `<div class="empty glass"><div class="big">🏎️</div><h3>Noch keine Autos</h3><p>Erstes Ziel: der Golf GTI für 800 🪙. Endgegner: Bugatti Chiron.</p></div>`}
 
+    <div class="section-title">Immobilien <small>${homes.length}/${SHOP.homes.items.length}</small></div>
+    ${homes.length ? `<div class="studio glass">${homes.map((i) => `<div class="studio-item"><span>${i.emoji}</span><small>${esc(i.name)}</small></div>`).join('')}</div>`
+      : '<p class="footnote" style="margin-top:0">Noch keine Immobilie. Erste Station: WG-Zimmer für 500 🪙.</p>'}
+
+    ${expertSection()}
+
     <div class="section-title">Kundenkartei <small>${p.served.size}/${CUSTOMERS.length}</small></div>
     <div class="kartei glass">${CUSTOMERS.map((c) => p.served.has(c.id)
       ? `<div class="k-item" title="${esc(c.name)}">${avatarSvg(c)}</div>`
@@ -666,6 +713,30 @@ function renderProfile() {
   `;
 }
 
+function expertSection() {
+  const a = assetInfo();
+  const on = expertsUnlocked();
+  const b = bossInfo();
+  const row = (ok, text) => `<div class="req ${ok ? 'ok' : ''}">${ok ? '✅' : '🔒'} ${text}</div>`;
+  const activeExpert = state.orders.some((o) => o.tier === 'expert' && isActive(o));
+  return `
+    <div class="section-title">🎖️ Experten <small>${on ? 'freigeschaltet' : 'gesperrt'}</small></div>
+    <div class="card glass tier-expert" style="cursor:default">
+      <div class="expert-row">${EXPERTS.map((e) => `<div class="expert ${on ? '' : 'locked'}"><span class="mini-avatar big ring-expert">${avatarSvg(e)}</span>
+        <b>${on ? esc(e.name) : '???'}</b><small>${on ? esc(e.spec.genre) : 'gesperrt'}</small></div>`).join('')}</div>
+      ${on ? `<p class="footnote" style="margin:10px 0 0">Experten wollen immer genau ihren Sound und akzeptieren erst ab ${EXPERT_MIN}/10 (deine Bewertung). Dafür gibt's längere Deadlines und fette Gagen (+150 🪙).</p>
+        ${activeExpert ? '' : '<button class="btn small" style="margin-top:10px" data-action="request-expert">Experten-Auftrag anfordern</button>'}`
+      : `<div class="reqs">${row(a.cars.length > 0, 'Ein Auto besitzen')}${row(a.homes.length > 0, 'Eine Immobilie besitzen')}${row(a.value >= EXPERT_UNLOCK_VALUE, `Besitz im Wert von ${EXPERT_UNLOCK_VALUE.toLocaleString('de-DE')} 🪙 (aktuell ${a.value.toLocaleString('de-DE')})`)}</div>`}
+    </div>
+
+    <div class="section-title">💀 Ultra-Boss <small>${b.ok ? 'freigeschaltet' : 'gesperrt'}</small></div>
+    <div class="card glass tier-boss" style="cursor:default">
+      <div class="boss-row"><span class="mini-avatar boss-avatar ring-boss ${b.ok ? '' : 'locked'}">${avatarSvg(BOSS)}</span>
+        <div><b>${b.ok ? esc(BOSS.name) : '??? ??? ???'}</b><span class="muted">Will einen release-fertigen Song. 6 Wochen Zeit, akzeptiert ab 9/10. Belohnung: 1.500 🪙.</span></div></div>
+      ${b.ok ? '' : `<div class="reqs">${row(b.days >= BOSS_UNLOCK.days, `${BOSS_UNLOCK.days} Tage dabei (${b.days})`)}${row(b.delivered >= BOSS_UNLOCK.delivered, `${BOSS_UNLOCK.delivered} Abgaben (${b.delivered})`)}${row(b.experts >= BOSS_UNLOCK.expertsAccepted, 'Einen Experten überzeugt')}</div>`}
+    </div>`;
+}
+
 function renderShopSheet() {
   const p = progress();
   const tab = state.shopTab;
@@ -676,6 +747,7 @@ function renderShopSheet() {
     const lockedBy = i.needs?.delivered && p.delivered < i.needs.delivered ? `${p.delivered}/${i.needs.delivered} Abgaben` : '';
     const preview = tab === 'garage' ? `<div class="shop-car">${carSvg(i)}</div>`
       : tab === 'legendary' ? `<div class="vip-portrait" style="width:140px;height:140px">${vipAvatar()}</div><span class="muted">Deine persönliche Hype-Managerin. Nur für echte Dranbleiber – ca. 3 Jahre konstant.</span>`
+      : tab === 'homes' ? `<div class="shop-emoji">${i.emoji}</div>`
       : tab === 'frames'
       ? `<div class="pfp-wrap ${i.id}" style="width:72px;height:72px"><div class="pfp" style="background:${gradient(state.settings.artistName || 'Du')}">${state.pfpUrl ? `<img src="${state.pfpUrl}" alt="" />` : '🎧'}</div></div>`
       : tab === 'banners' ? `<div class="profile-banner ${i.id}" style="height:64px;border-radius:14px;width:100%"></div>`
@@ -685,6 +757,7 @@ function renderShopSheet() {
       ? `<button class="btn small ${cant ? 'secondary' : ''}" data-action="buy" data-id="${i.id}" ${cant ? 'disabled' : ''}>${i.price.toLocaleString('de-DE')} 🪙${lockedBy ? ` · 🔒 ${lockedBy}` : ''}</button>`
       : tab === 'studio' ? '<span class="pill green">Im Studio ✓</span>'
       : tab === 'garage' ? '<span class="pill green">In der Garage ✓</span>'
+      : tab === 'homes' ? '<span class="pill green">Gehört dir ✓</span>'
       : tab === 'legendary' ? '<span class="pill green">👑 Freigeschaltet</span>'
       : `<button class="btn small ${equipped ? 'secondary' : ''}" data-action="equip" data-id="${i.id}">${equipped ? 'Ablegen' : 'Anlegen'}</button>`;
     return `<div class="shop-item glass">${preview}<b>${esc(i.name)}</b>${btn}</div>`;
@@ -896,9 +969,10 @@ function renderOrderSheet(o) {
   if (o.instruments?.length) specs.push(Object.assign(['Instrumente', o.instruments.join(', ')], { wide: true }));
 
   return `
+    ${o.tier ? `<div class="tier-banner tier-${o.tier}">${TIER[o.tier].badge} · akzeptiert nur ab ${o.minRating}/10 · längere Deadline</div>` : ''}
     <div class="sheet-head">
       <button class="btn plain" data-action="close-sheet">Schließen</button>
-      <h2 class="sheet-title">${customerOf(o) ? `<span class="mini-avatar">${avatarSvg(customerOf(o))}</span>` : ''}${esc(o.type === 'own' ? 'Projekt' : o.type === 'video' ? 'Video' : o.type === 'vocals' ? 'Vocals' : o.client.split(' – ')[0])}</h2>
+      <h2 class="sheet-title">${customerOf(o) ? `<span class="mini-avatar ${o.tier ? `ring-${o.tier}` : ''}">${avatarSvg(customerOf(o))}</span>` : ''}${esc(o.type === 'own' ? 'Projekt' : o.type === 'video' ? 'Video' : o.type === 'vocals' ? 'Vocals' : o.client.split(' – ')[0])}</h2>
       <span style="width:80px;text-align:right"><span class="pill ${due.cls}">${delivered ? '✓' : due.text.replace('Noch ', '')}</span></span>
     </div>
 
@@ -907,7 +981,12 @@ function renderOrderSheet(o) {
       <div class="thread-meta">${fmtDate(o.createdAt)}, ${fmtTime(o.createdAt)}</div>
       <div class="bubble them">${esc(o.brief)}</div>
       ${o.status !== 'new' ? '<div class="bubble me">Bin dran! 🎛️</div>' : ''}
-      ${delivered ? `<div class="bubble me">Hier ist dein ${esc(T.short)} 🎧</div>
+      ${(o.verdicts || []).map((v) => `<div class="bubble me">Hier ist meine Version 🎧</div>
+        <div class="thread-meta">${fmtDate(v.at)} · deine Bewertung ${v.rating}/10</div>
+        <div class="bubble them">${v.accepted ? '✅' : '❌'} ${esc(v.reply)}</div>`).join('')}
+      ${delivered && o.minRating && !o.accepted ? `<div class="bubble me">Hier ist dein ${esc(T.short)} 🎧</div>
+        <div class="bubble them">⏳ Ich urteile erst nach deiner ehrlichen Bewertung. Unter ${o.minRating}/10 geht er zurück.</div>` : ''}
+      ${delivered && !o.minRating ? `<div class="bubble me">Hier ist dein ${esc(T.short)} 🎧</div>
         <div class="thread-meta">${fmtDate(o.deliveredAt)}, ${fmtTime(o.deliveredAt)}</div>
         <div class="bubble them">${esc(o.reply)}<br><span class="stars">${'★'.repeat(o.rating || 0)}${'☆'.repeat(5 - (o.rating || 0))}</span></div>` : ''}
     </div>` : `<h2 style="font-size:28px;margin:12px 4px 4px">${esc(orderTitle(o))}</h2>
@@ -940,7 +1019,7 @@ function renderOrderSheet(o) {
         ? 'Noch nichts hochgeladen. Schneide das Video (z. B. CapCut) und lade es hier hoch.'
         : o.type === 'vocals' ? 'Nimm deine Vocals in FL Studio auf, misch sie und exportiere den ganzen Song (MP3/WAV).'
         : 'Noch nichts hochgeladen. Exportiere aus FL Studio (MP3/WAV) und lade die Datei hier hoch.'}</p>`}
-      <button class="btn ${subs.length ? 'secondary' : ''}" data-action="upload" data-id="${o.id}">⬆︎ ${o.type === 'vocal_chain' ? 'Preset / Demo hochladen' : o.type === 'video' ? 'Video hochladen' : o.type === 'vocals' ? 'Song mit Vocals hochladen' : 'Datei hochladen'}</button>
+      <button class="btn ${subs.length ? 'secondary' : ''}" data-action="upload" data-id="${o.id}">⬆︎ ${o.type === 'vocal_chain' ? 'Preset / Demo hochladen' : o.type === 'video' ? 'Video hochladen' : o.type === 'vocals' ? 'Song mit Vocals hochladen' : o.type === 'release' ? 'Release-Song hochladen (gemischt & gemastert)' : 'Datei hochladen'}</button>
       ${!delivered && subs.length ? `<button class="btn" style="margin-top:10px" data-action="deliver" data-id="${o.id}">${selfMade(o) ? 'Als fertig markieren' : `v${subs[0].version} abgeben`}</button>` : ''}
     `}
 
@@ -985,6 +1064,7 @@ function renderReview(o) {
   const playing = state.playing?.subId === sub?.id && !audio.paused;
   return `<div class="review glass col">
     <b>🎧 Nochmal komplett anhören & ehrlich bewerten</b>
+    ${o.minRating ? `<span style="color:var(--orange);font-weight:600">${o.tier === 'boss' ? '💀' : '🎖️'} ${esc(o.client)} akzeptiert erst ab ${o.minRating}/10 – sei ehrlich, sonst lernst du nichts.</span>` : ''}
     <span>Ab ${thr}/10 ${U.hint}.</span>
     ${sub ? `<div class="review-listen">
       <button class="play-dot" data-action="play" data-order="${o.id}" data-sub="${sub.id}" aria-label="Abspielen">${playing ? ICON.pause : ICON.play}</button>
@@ -1354,13 +1434,14 @@ const actions = {
     o.status = 'delivered';
     o.deliveredAt = Date.now();
     o.deliveredSubmissionId = latest.id;
-    if (!selfMade(o)) Object.assign(o, clientReply(o));
+    if (o.minRating) o.reply = null; // experts/boss judge after your review
+    else if (!selfMade(o)) Object.assign(o, clientReply(o));
     // Everything with music gets the next-day self-review (not presets, not videos).
     if (o.type !== 'vocal_chain' && o.type !== 'video' && isAudioFile(latest)) {
       o.review = { opensAt: reviewOpensAt(o.deliveredAt), listenedSec: 0, duration: latest.duration || null, rating: null };
     }
     await saveOrder(o);
-    rewardToast(before, o.review ? 'Abgegeben ✅ Morgen nochmal anhören' : selfMade(o) ? 'Fertig ✅' : 'Abgegeben ✅');
+    rewardToast(before, o.minRating ? `Abgegeben – Urteil nach deiner Bewertung (mind. ${o.minRating}/10)` : o.review ? 'Abgegeben ✅ Morgen nochmal anhören' : selfMade(o) ? 'Fertig ✅' : 'Abgegeben ✅');
     render(); renderSheet();
   },
 
@@ -1419,6 +1500,21 @@ const actions = {
     const before = progress();
     o.review.rating = n;
     o.review.ratedAt = Date.now();
+    if (o.minRating) {
+      const accepted = n >= o.minRating;
+      const reply = verdictReply(o, accepted);
+      o.verdicts = [...(o.verdicts || []), { rating: n, accepted, reply, at: Date.now() }];
+      if (!accepted) {
+        // Sent back: rework and deliver again.
+        Object.assign(o, { status: 'in_progress', deliveredAt: null, deliveredSubmissionId: null, review: null, reply: null });
+        if (state.playing?.orderId === o.id) audio.pause();
+        await saveOrder(o);
+        toast(`❌ ${o.client.split(' ')[0]} hat abgelehnt – überarbeiten und nochmal abgeben`);
+        render(); renderSheet();
+        return;
+      }
+      o.accepted = true; o.reply = reply; o.rating = 5;
+    }
     if (n >= state.settings.videoThreshold) {
       const v = unlockFor(o) === 'vocals' ? createVocalOrder(o, genOpts()) : createVideoOrder(o, genOpts());
       o.review.nextOrderId = v.id;
@@ -1426,7 +1522,8 @@ const actions = {
     }
     if (state.playing?.orderId === o.id) audio.pause();
     await saveOrder(o);
-    rewardToast(before, n >= state.settings.videoThreshold
+    rewardToast(before, o.accepted ? `✅ ${TIER[o.tier].label} hat akzeptiert!`
+      : n >= state.settings.videoThreshold
       ? (unlockFor(o) === 'vocals' ? '🎙️ Freigegeben – jetzt Vocals drauf!' : '🎬 Freigegeben – Video-Auftrag ist da')
       : `${n}/10 – nächstes Mal knackst du die ${state.settings.videoThreshold} 💪`);
     render(); renderSheet();
@@ -1456,6 +1553,12 @@ const actions = {
   'new-own': () => openSheet({ kind: 'own' }),
 
   'open-shop': () => openSheet({ kind: 'shop' }),
+  async 'request-expert'() {
+    if (!expertsUnlocked()) return;
+    const o = createExpertOrder(state.settings, genOpts());
+    await receiveOrder(o);
+    openSheet({ kind: 'order', id: o.id });
+  },
   'shop-tab': (el) => { state.shopTab = el.dataset.v; renderSheet(); },
   async buy(el) {
     const item = ITEMS[el.dataset.id];
@@ -1463,10 +1566,13 @@ const actions = {
     if (!item || p.coins < item.price) return toast('Nicht genug Coins 🪙');
     if (item.needs?.delivered && p.delivered < item.needs.delivered) return toast(`🔒 Erst ${item.needs.delivered} Abgaben`);
     if (!confirm(`${item.name} für ${item.price} 🪙 kaufen?`)) return;
+    const expertsUnlockedBefore = expertsUnlocked();
     state.profile.owned = [...state.profile.owned, item.id];
     if (item.cat === 'frames') state.profile.frame = item.id;
     if (item.cat === 'banners') state.profile.banner = item.id;
     await saveProfile();
+    const wasLocked = !expertsUnlockedBefore;
+    if (wasLocked && expertsUnlocked()) setTimeout(() => toast('🎖️ EXPERTEN FREIGESCHALTET! Schau ins Profil.'), 2600);
     toast(item.id === 'vip-chaya' ? '👑 LEGENDÄR! Chaya ist jetzt deine VIP-Managerin 💅' : `${item.emoji || (item.cat === 'garage' ? '🏎️' : '✨')} ${item.name} gekauft!`);
     renderSheet(); render();
   },

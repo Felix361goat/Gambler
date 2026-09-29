@@ -1,4 +1,6 @@
-import { CUSTOMERS, CUSTOMER_BY_ID, writeBrief, replyFor, budgetFor } from './customers.js';
+import {
+  CUSTOMERS, CUSTOMER_BY_ID, EXPERTS, BOSS, writeBrief, writeExpertBrief, writeBossBrief, replyFor, budgetFor,
+} from './customers.js';
 
 // Generates realistic "client" orders and decides when the next one arrives.
 // Everything here is plain data + pure functions, so it's easy to extend later
@@ -12,6 +14,7 @@ export const ORDER_TYPES = {
   remix:        { label: 'Remix / Flip', short: 'Remix', icon: '🔁', days: [4, 8], effort: 4, budget: [50, 180] },
   own:          { label: 'Eigenes Projekt', short: 'Eigenes', icon: '⭐️', days: [0, 0], effort: 0, budget: [0, 0], manualOnly: true },
   // Only unlocked by your own rating – never random.
+  release:      { label: 'Release-Song', short: 'Release', icon: '💿', days: [42, 42], effort: 25, budget: [0, 0], manualOnly: true },
   vocals:       { label: 'Vocals drauf', short: 'Song', icon: '🎙️', days: [5, 9], effort: 4, budget: [0, 0], manualOnly: true },
   video:        { label: 'Video / TikTok', short: 'Video', icon: '🎬', days: [5, 8], effort: 3, budget: [0, 0], manualOnly: true },
 };
@@ -133,6 +136,7 @@ const SKILL_AREAS = {
   own: ['Drums', 'Sound Design', 'Musiktheorie', 'Sampling', 'Einspielen', 'Cover-Art'],
   video: ['Video', 'Release & Social', 'Cover-Art'],
   vocals: ['Vocals', 'Songwriting', 'Mixing', 'Cover-Art'],
+  release: ['Mastering', 'Mixing', 'Vocals', 'Cover-Art', 'Release & Social'],
 };
 
 // XP → level. Level decides how hard the challenges get.
@@ -328,14 +332,29 @@ function weightedPick(items, weightOf) {
   return items[items.length - 1];
 }
 
+// Customer choice: new faces first, and "fans" (you delivered well to them
+// before) come back more often. Each customer mostly orders their own
+// favourite genres.
+function pickCustomer(history) {
+  const recent = new Set(history.slice(-25).map((o) => o.customerId));
+  const fans = new Set(history.filter((o) => o.customerId && o.status === 'delivered' && ((o.review?.rating ?? 0) >= 8 || o.rating === 5)).map((o) => o.customerId));
+  return weightedPick(CUSTOMERS, (c) => (fans.has(c.id) ? 3 : recent.has(c.id) ? 0.3 : 1));
+}
+export const isFan = (customerId, history) => history.some((o) => o.customerId === customerId && o.status === 'delivered' && ((o.review?.rating ?? 0) >= 8 || o.rating === 5));
+
 export function generateOrder(settings, { type, at, history = [] } = {}) {
   const { declined } = analyze(history.slice(-40));
-  const recent = [...history].filter((o) => o.type !== 'own' && o.type !== 'video' && !o.deleted).sort((a, b) => b.createdAt - a.createdAt);
+  const recent = [...history].filter((o) => o.type !== 'own' && o.type !== 'video' && !o.deleted)
+    .sort((a, b) => b.createdAt - a.createdAt);
   const known = (settings.genres?.length ? settings.genres : Object.keys(GENRES)).filter((g) => GENRES[g]);
   const genreNames = known.length ? known : Object.keys(GENRES);
+  const customer = pickCustomer(history);
+  const theirs = (customer.likes || []).filter((g) => GENRES[g]);
   const recentGenres = recent.slice(0, 2).map((o) => o.genre);
   const freshGenres = genreNames.filter((g) => !recentGenres.includes(g));
-  const genre = weightedPick(freshGenres.length ? freshGenres : genreNames, (g) => 1 / (1 + (declined.genres[g] || 0)));
+  const genre = theirs.length && Math.random() < 0.7
+    ? pick(theirs)
+    : weightedPick(freshGenres.length ? freshGenres : genreNames, (g) => 1 / (1 + (declined.genres[g] || 0)));
   const g = GENRES[genre];
   const tw = Object.fromEntries(Object.entries(settings.types || DEFAULT_SETTINGS.types)
     .map(([k, w]) => [k, w / (1 + 0.5 * (declined.types[k] || 0))]));
@@ -349,10 +368,6 @@ export function generateOrder(settings, { type, at, history = [] } = {}) {
     theme: pick(THEMES), voice: pick(VOICES),
   };
   const now = at ?? Date.now();
-  // Customer: prefer people you haven't worked with recently.
-  const recentIds = new Set(history.slice(-30).map((o) => o.customerId));
-  const freshCustomers = CUSTOMERS.filter((c) => !recentIds.has(c.id));
-  const customer = pick(freshCustomers.length ? freshCustomers : CUSTOMERS);
   const { budget, note } = budgetFor(customer, rand(T.budget[0], T.budget[1]));
   return {
     id: uid(),
@@ -392,6 +407,56 @@ export function createOwnProject({ title, genre, history = [] }) {
     submissions: [], deliveredAt: null, deliveredSubmissionId: null,
     reply: null, rating: null, updatedAt: now,
   };
+}
+
+// ---- Experts & Boss -------------------------------------------------------
+export const EXPERT_MIN = 8;
+export const BOSS_MIN = 9;
+const EXPERT_FACTOR = 3.5; // longer deadlines than normal orders
+
+export function createExpertOrder(settings, { history = [], at } = {}) {
+  const now = at ?? Date.now();
+  const lastExpert = history.filter((o) => o.tier === 'expert').sort((a, b) => b.createdAt - a.createdAt)[0];
+  const pool = EXPERTS.filter((e) => e.id !== lastExpert?.customerId);
+  const ex = pick(pool.length ? pool : EXPERTS);
+  const sp = ex.spec;
+  const vars = { bpm: randInt(sp.bpm[0], sp.bpm[1]), key: pick(sp.keys) };
+  const effort = 6;
+  return {
+    id: uid(), tier: 'expert', minRating: EXPERT_MIN,
+    client: ex.name, customerId: ex.id, type: 'instrumental', genre: sp.genre,
+    bpm: vars.bpm, key: vars.key, mood: 'exakt nach Vorgabe', instruments: sp.inst,
+    brief: writeExpertBrief(ex, vars, EXPERT_MIN),
+    challenge: pickChallenge('instrumental', { history }), effort,
+    budget: randInt(40, 80) * 10, budgetNote: '(Experten-Gage)',
+    createdAt: now, deadline: deadlineFor(effort * EXPERT_FACTOR / 2.5, now, settings.week),
+    status: 'new', submissions: [], deliveredAt: null, deliveredSubmissionId: null, reply: null, rating: null, updatedAt: now,
+  };
+}
+
+export function createBossOrder(settings, { history = [], at } = {}) {
+  const now = at ?? Date.now();
+  const genres = (settings.genres?.length ? settings.genres : Object.keys(GENRES));
+  const vars = { genre: pick(genres) };
+  const d = new Date(now); d.setDate(d.getDate() + 42); d.setHours(23, 59, 0, 0);
+  return {
+    id: uid(), tier: 'boss', minRating: BOSS_MIN,
+    client: BOSS.name, customerId: BOSS.id, type: 'release', genre: vars.genre,
+    bpm: null, key: null, mood: 'release-fertig', instruments: [],
+    brief: writeBossBrief(BOSS, vars, BOSS_MIN),
+    challenge: pickChallenge('release', { history }), effort: ORDER_TYPES.release.effort,
+    budget: 5000, budgetNote: '(+ 1.500 🪙 Boss-Bonus)',
+    createdAt: now, deadline: d.getTime(),
+    status: 'new', submissions: [], deliveredAt: null, deliveredSubmissionId: null, reply: null, rating: null, updatedAt: now,
+  };
+}
+
+// Verdict after your own review (experts/boss): accept or send it back.
+export function verdictReply(order, accepted) {
+  const c = CUSTOMER_BY_ID[order.customerId];
+  const late = order.deadline && order.deliveredAt > order.deadline;
+  if (!accepted) return replyFor(c, 'reject') || 'Nochmal.';
+  return replyFor(c, late ? 'late' : 'great') || 'Akzeptiert.';
 }
 
 export function clientReply(order) {

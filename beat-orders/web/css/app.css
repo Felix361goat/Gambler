@@ -467,6 +467,29 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
 .viz-rec.on { background: #ff3b30; animation: recpulse 1.2s ease-in-out infinite; }
 @keyframes recpulse { 50% { box-shadow: 0 0 0 8px rgba(255,59,48,.25); } }
 
+/* Experts & Boss */
+.card.tier-expert { border: 1px solid rgba(251,191,36,.7); box-shadow: 0 0 0 1px rgba(251,191,36,.25), 0 8px 30px rgba(251,191,36,.25), var(--glass-shadow); background: linear-gradient(160deg, rgba(251,191,36,.16), rgba(0,0,0,0) 45%), var(--glass); }
+.card.tier-boss { border: 1px solid rgba(239,68,68,.8); background: linear-gradient(160deg, rgba(127,29,29,.55), rgba(0,0,0,.35)), var(--glass); animation: bossglow 2.4s ease-in-out infinite; }
+@keyframes bossglow { 50% { box-shadow: 0 0 28px rgba(239,68,68,.55), 0 0 60px rgba(251,191,36,.2); } }
+.tier-badge { font-size: 11px; font-weight: 800; letter-spacing: .08em; margin-bottom: 8px; color: #fbbf24; }
+.tier-boss .tier-badge { color: #f87171; }
+.tier-banner { margin: 2px 0 6px; padding: 8px 12px; border-radius: 12px; font-size: 12px; font-weight: 700; text-align: center; letter-spacing: .03em; }
+.tier-banner.tier-expert { background: linear-gradient(90deg, #b45309, #fbbf24, #b45309); color: #1c1917; }
+.tier-banner.tier-boss { background: linear-gradient(90deg, #450a0a, #dc2626, #450a0a); color: #fff; }
+.ring-expert { box-shadow: 0 0 0 2.5px #fbbf24, 0 0 14px rgba(251,191,36,.7); }
+.ring-boss { box-shadow: 0 0 0 2.5px #ef4444, 0 0 18px rgba(239,68,68,.8); }
+.expert-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; text-align: center; }
+.expert b { display: block; font-size: 12px; margin-top: 6px; line-height: 1.2; }
+.expert small { font-size: 11px; color: var(--label-2); }
+.expert .mini-avatar.big { width: 52px; height: 52px; }
+.expert.locked .mini-avatar, .boss-avatar.locked { filter: brightness(0) saturate(0); opacity: .5; }
+.boss-row { display: flex; gap: 14px; align-items: center; }
+.boss-row b { display: block; font-size: 17px; letter-spacing: .04em; }
+.boss-avatar { width: 72px; height: 72px; }
+.reqs { margin-top: 12px; display: grid; gap: 6px; }
+.req { font-size: 14px; color: var(--label-2); }
+.req.ok { color: var(--green); }
+
 /* Toast */
 .toast {
   position: fixed; left: 50%; transform: translateX(-50%); top: calc(var(--safe-top) + 10px); z-index: 60;

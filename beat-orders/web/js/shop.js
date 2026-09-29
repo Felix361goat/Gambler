@@ -60,6 +60,17 @@ export const SHOP = {
       { id: 'car-chiron', name: 'Bugatti Chiron', shape: 'hyper', color: '#1d4ed8', price: 18000 },
     ],
   },
+  homes: {
+    label: 'Immobilien',
+    items: [
+      { id: 'home-wg', name: 'WG-Zimmer in Favoriten', emoji: '🛏️', price: 500 },
+      { id: 'home-altbau', name: 'Altbauwohnung in Wien', emoji: '🏢', price: 1200 },
+      { id: 'home-loft', name: 'Loft mit eigenem Tonstudio', emoji: '🎚️', price: 2500 },
+      { id: 'home-haus', name: 'Haus mit Garten', emoji: '🏡', price: 5000 },
+      { id: 'home-ibiza', name: 'Villa auf Ibiza', emoji: '🏝️', price: 12000 },
+      { id: 'home-dubai', name: 'Penthouse in Dubai', emoji: '🌆', price: 16000 },
+    ],
+  },
   legendary: {
     label: 'Legendär',
     items: [
@@ -94,6 +105,11 @@ export function carSvg(item) {
   </svg>`;
 }
 
+// Experts unlock once you own a car AND a home worth ≥ this together
+// (~2–3 months of steady work). The Ultra-Boss needs about a year.
+export const EXPERT_UNLOCK_VALUE = 1300;
+export const BOSS_UNLOCK = { days: 330, delivered: 70, expertsAccepted: 1 };
+
 export const ITEMS = Object.fromEntries(
   Object.entries(SHOP).flatMap(([cat, c]) => c.items.map((i) => [i.id, { ...i, cat }]))
 );
@@ -112,6 +128,8 @@ export const TROPHIES = [
   { id: 'genres', icon: '🌍', name: 'Genre-Hopper', desc: 'In 5 Genres mind. 8/10 geschafft', check: (s) => [s.goodGenres, 5] },
   { id: 'level5', icon: '⭐️', name: 'Aufsteiger', desc: 'Level 5 erreicht', check: (s) => [s.level, 5] },
   { id: 'twenty', icon: '🏅', name: 'Produzent', desc: '20 Aufträge abgegeben', check: (s) => [s.delivered, 20] },
+  { id: 'expert1', icon: '🎖️', name: 'Vom Experten abgesegnet', desc: 'Einen Experten-Auftrag bestanden', check: (s) => [s.expertsAccepted, 1] },
+  { id: 'boss', icon: '💀', name: 'Boss besiegt', desc: 'Den Ultra-Boss mit einem Release überzeugt', check: (s) => [s.bossBeaten, 1] },
   { id: 'clients25', icon: '📇', name: 'Netzwerker', desc: '25 verschiedene Kunden bedient', check: (s) => [s.clients, 25] },
   { id: 'clientsAll', icon: '🌐', name: 'Jeder kennt dich', desc: 'Alle Kunden mindestens einmal bedient', check: (s) => [s.clients, s.clientsTotal] },
 ];
@@ -125,6 +143,8 @@ export function orderCoins(o, threshold) {
   if (o.challenge?.done) c += 15;
   const r = o.review?.rating;
   if (r) c += r >= threshold ? 25 : r >= 7 ? 10 : 0;
+  if (o.tier === 'expert' && o.accepted) c += 150;
+  if (o.tier === 'boss' && o.accepted) c += 1500;
   return c;
 }
 

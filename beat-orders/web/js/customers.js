@@ -1,3 +1,5 @@
+import { PEOPLE } from './people.js';
+
 // ~100 customers in 12 archetypes – each with its own (very exaggerated)
 // writing style, budget habits, replies and a generated cartoon avatar.
 //
@@ -301,6 +303,76 @@ export const ARCHETYPES = {
   },
 };
 
+// Sonderlinge – say weird stuff, order weird stuff.
+ARCHETYPES.weird = {
+  label: 'Sonderling', mult: 0.6,
+  names: [],
+  what: { instrumental: 'einen Beat', full_song: 'ein Lied', vocal_chain: 'eine Stimm-Kette', hook: 'eine Hook', remix: 'einen Remix' },
+  greet: ['Hallo.', 'Guten Abend. Oder Morgen.', 'Hi, ich bin es.', 'Ähm, hallo?'],
+  lines: [
+    'ich brauche {what}. {genre}. {bpm} BPM. Frag nicht warum.',
+    'meine Schildkröte meint, ich soll {what} bestellen. {genre}, Vibe {mood}.',
+    '{what} bitte. {genre}. Soll klingen wie ein Keller um 3 Uhr nachts, aber {mood}.',
+  ],
+  extra: {
+    inst: ['Mit {i1}. {i2} nur, wenn es die Gurken erlauben.', '{i1} ja. {i2} vielleicht. Tiere mögen {i1}.'],
+    theme: ['Thema: {theme}. Oder Schildkröten. Beides geht.', 'Es geht um {theme}, glaube ich.'],
+    voice: ['Meine Stimme ist {voice}, sagt meine Mutter.', 'Ich klinge wie {voice}, nur leiser.'],
+  },
+  outro: ['Danke. Tschüss.', 'Bis bald. Oder nicht.', 'Ich gehe jetzt Gurken gießen.', 'Ende der Nachricht.'],
+  replies: {
+    great: ['Ich habe geweint. Meine Schildkröte auch. 🐢', 'Perfekt. Ich hab’s 300 Mal gehört, rückwärts auch.'],
+    good: ['Gut. Die Gurken sind zufrieden.', 'Passt. Wackelt schön.'],
+    late: ['Spät, aber Zeit ist eh relativ.', 'Ich hab gewartet und ein Puzzle gemacht. 5000 Teile.'],
+  },
+  look: { bg: ['#a3e635', '#fb923c', '#94a3b8', '#f0abfc'], hair: { m: ['messy', 'bald', 'short'], f: ['bun', 'curls'] }, hairColor: ['#9ca3af', '#d97706', '#1c1c1c', '#7c3aed'], glasses: 0.4, roundGlasses: 0.4, freckles: true, shirt: ['#65a30d', '#f59e0b', '#7c3aed'] },
+};
+
+// ---- Experts & the Ultra-Boss --------------------------------------------
+// Experts always want the SAME thing (their specialty) and only accept
+// ≥ minRating by your own honest review. Specialties below are placeholders –
+// swap genre/bpm/instruments for your own.
+ARCHETYPES.expert = {
+  label: 'Experte', special: true,
+  replies: {
+    great: ['Akzeptiert. So klingt das. Du lernst.', 'Sauber. Das ist genau mein Sound. Nächstes Mal wieder so.'],
+    good: ['Akzeptiert. Knapp, aber akzeptiert.'],
+    late: ['Spät. Aber das Ergebnis zählt. Akzeptiert.'],
+    reject: ['Nein. Das ist nicht mein Sound. Nochmal.', 'Nicht gut genug. Hör dir die Referenzen an und überarbeite es.', 'Das schick ich nicht mal meiner Oma. Nochmal.'],
+  },
+  look: { bg: ['#111827'], hair: ['fade'], hairColor: ['#1c1c1c'], shirt: ['#111'] },
+};
+ARCHETYPES.boss = {
+  label: 'ULTRA-BOSS', special: true,
+  replies: {
+    great: ['…Das ist ein Release. Du bist bereit. 👑', 'Ich habe viele gehört. Das hier ist echt. Respekt.'],
+    good: ['Akzeptiert. Veröffentliche es.'],
+    late: ['Zu spät – aber gut genug. Akzeptiert.'],
+    reject: ['Das ist kein Release. Das ist eine Demo. Nochmal.', 'Nein. Mix, Master, Performance – alles muss sitzen. Nochmal.'],
+  },
+  look: { bg: ['#1a0000'], hair: ['short'], hairColor: ['#0a0a0a'], shirt: ['#0a0a0a'] },
+};
+
+export const EXPERTS = [
+  { id: 'expert:motorcity', name: 'Maestro Motorcity', arch: 'expert', g: 'm', sig: 'Detroit oder gar nicht.', fact: 'Ich höre seit 1996 nur Beats aus Detroit.',
+    spec: { genre: 'Detroit', label: 'Detroit-Beat', bpm: [94, 102], keys: ['F Moll', 'C# Moll', 'G Moll'], inst: ['hüpfendes Offbeat-Piano', 'Clap auf 2 & 4', 'Detroit-Hi-Hats', 'kurze 808 mit Glide'] },
+    look: { bg: '#0f172a', hair: 'fade', sunglasses: true, beard: true, chain: true, skin: '#8a5433' } },
+  { id: 'expert:slide', name: 'Sir Sliding Eight-O-Eight', arch: 'expert', g: 'm', sig: 'Slide or die.', fact: 'Ich habe 400 Drill-Beats bewertet, 3 waren gut.',
+    spec: { genre: 'UK Drill', label: 'UK-Drill-Beat', bpm: [140, 144], keys: ['F# Moll', 'D Moll'], inst: ['Sliding 808s', 'Drill-Hi-Hats im Triolen-Swing', 'dunkle Strings', 'Snare auf 3'] },
+    look: { bg: '#18181b', hair: 'cap', sunglasses: false, beard: true, chain: true, skin: '#6b3f26' } },
+  { id: 'expert:sampleton', name: 'Onkel Sampleton', arch: 'expert', g: 'm', sig: 'Staub ist Gold.', fact: 'Meine Plattensammlung wiegt mehr als mein Auto.',
+    spec: { genre: 'Boom Bap (90s NY)', label: '90s-Boom-Bap-Beat', bpm: [86, 94], keys: ['A Moll', 'D Moll'], inst: ['gechoppte Soul-/Jazz-Samples', 'dreckige Drums mit Swing', 'Vinyl-Crackle', 'Upright- oder Sub-Bass'] },
+    look: { bg: '#1c1917', hair: 'beanie', roundGlasses: true, beard: true, skin: '#b87a4b' } },
+  { id: 'expert:kickroll', name: 'Queen Kickroll', arch: 'expert', g: 'f', sig: 'Bounce ist Pflicht.', fact: 'Ich tanze zu jedem Beat, den ich bewerte. Auch zu den schlechten.',
+    spec: { genre: 'Jersey Club', label: 'Jersey-Club-Beat', bpm: [138, 142], keys: ['E Moll', 'B Moll'], inst: ['Kick-Rolls im Jersey-Pattern', 'Bed-Squeaks', 'Vocal-Chops', 'Synth-Stabs'] },
+    look: { bg: '#1e1b4b', hair: 'long', hairColor: '#111', lashes: true, lips: true, hoops: true, skin: '#6b3f26', fem: true } },
+];
+
+export const BOSS = {
+  id: 'boss:nero', name: 'IL MAESTRO NERO', arch: 'boss', g: 'm', sig: 'Nur Releases. Keine Demos.', fact: 'Ich habe 30 Jahre Hits gemacht. Überzeug mich.',
+  look: { bg: '#1a0000', hair: 'short', hairColor: '#0a0a0a', sunglasses: true, beard: true, chain: true, crown: true, sparkles: true, skin: '#d89c6c', shirt: '#0a0a0a', tie: true },
+};
+
 // ---- seeded randomness so every customer always looks the same ----------
 function seed(str) {
   let h = 1779033703 ^ str.length;
@@ -311,11 +383,28 @@ function seed(str) {
   };
 }
 
-export const CUSTOMERS = Object.entries(ARCHETYPES).flatMap(([arch, a]) => a.names.map((n) => {
+for (const [arch, P] of Object.entries(PEOPLE)) if (P.names) ARCHETYPES[arch].names = P.names;
+
+export const CUSTOMERS = Object.entries(ARCHETYPES).filter(([, a]) => !a.special).flatMap(([arch, a]) => a.names.map((n, i) => {
   const [name, g] = n.split('|');
-  return { id: `${arch}:${name}`, name, arch, g };
+  const P = PEOPLE[arch] || {};
+  const r = seed(`${arch}:${name}:likes`);
+  const pool = [...(P.likes || [])].sort(() => r() - 0.5);
+  const nf = P.facts?.length || 0;
+  return {
+    id: `${arch}:${name}`, name, arch, g,
+    sig: P.sigs?.[i % P.sigs.length] || '',
+    facts: nf ? [P.facts[(2 * i) % nf], P.facts[(2 * i + 1) % nf]] : [],
+    likes: pool.slice(0, 2),
+  };
 }));
-export const CUSTOMER_BY_ID = Object.fromEntries(CUSTOMERS.map((c) => [c.id, c]));
+export const CUSTOMER_BY_ID = Object.fromEntries([...CUSTOMERS, ...EXPERTS, BOSS].map((c) => [c.id, c]));
+
+// What we call them inside their own messages.
+export function firstName(c) {
+  if (PEOPLE[c.arch]?.fullName || c.arch === 'expert' || c.arch === 'boss') return c.name;
+  return c.name.replace(/\s*\(\d+\)/, '').split(/[\s–]/)[0];
+}
 
 // ---- writing ------------------------------------------------------------
 const pickR = (r, arr) => arr[Math.floor(r() * arr.length)];
@@ -332,12 +421,30 @@ export function writeBrief(customer, type, vars, r = Math.random) {
   if (!/,$/.test(greet) && !a.kid && customer.arch !== 'chaya' && customer.arch !== 'gamer') line = cap(line);
   const extra = fill(pickR(r, a.extra[kind]), v);
   const outro = fill(pickR(r, a.outro), v);
-  return `${greet}\n${line} ${extra}\n\n${outro}`;
+  // Their own random (useless) fact – about every second message.
+  const P = PEOPLE[customer.arch];
+  const fact = customer.facts?.length && r() < 0.5
+    ? `\n${fill(P.factTpl, { first: firstName(customer), fact: pickR(r, customer.facts) })}` : '';
+  const sig = customer.sig ? `\n${customer.sig}` : '';
+  return `${greet}\n${line} ${extra}${fact}\n\n${outro}${sig}`;
+}
+
+// Experts: always the same demand, very precise.
+export function writeExpertBrief(expert, vars, minRating, r = Math.random) {
+  const s = expert.spec;
+  const opener = pickR(r, ['Wie immer.', 'Du weißt, was ich will.', 'Gleicher Auftrag wie immer.', 'Hör gut zu.']);
+  return `${opener}\nIch will einen ${s.label}. ${vars.bpm} BPM, ${vars.key}. ${s.inst.join(', ')}. Keine Experimente, kein Genre-Mix.\n` +
+    `Unter ${minRating}/10 brauchst du mir nichts schicken – dann geht er zurück.\n\n${expert.fact}\n${expert.sig}`;
+}
+
+export function writeBossBrief(boss, vars, minRating) {
+  return `Du hast lange durchgezogen. Respekt.\nJetzt zeig mir, wer du bist: einen RELEASE-FERTIGEN SONG. Beat, Vocals, Mix, Master – alles.\n` +
+    `Genre: ${vars.genre} – oder das, was du am besten kannst. Du hast 6 Wochen.\nUnter ${minRating}/10 will ich es nicht hören.\n\n${boss.fact}\n${boss.sig}`;
 }
 
 export function replyFor(customer, kind) {
   const a = ARCHETYPES[customer?.arch];
-  if (!a) return null;
+  if (!a?.replies?.[kind]) return null;
   return pickR(Math.random, a.replies[kind]);
 }
 
@@ -383,7 +490,7 @@ function pickLook(customer) {
 let avatarCount = 0;
 export function avatarSvg(customer, opts = {}) {
   if (!customer) return '';
-  const k = { ...pickLook(customer), ...opts };
+  const k = { ...pickLook(customer), ...(customer.look || {}), ...opts };
   const id = `av${(avatarCount++).toString(36)}`;
   const hc = k.hairColor, sk = k.skin;
   const W = k.fat ? 25 : k.fem ? 20 : 21; // face half-width
