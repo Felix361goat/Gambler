@@ -10,11 +10,11 @@ import { fetchInbox } from './inbox.js';
 import { titleFor, tipOfDay, questsForWeek } from './motivation.js';
 import { FAMILIES } from './genres.js';
 import { PLATFORMS, careerTitle, fmtNum } from './careers.js';
-import { SHOP, ITEMS, TROPHIES, TROPHY_BONUS, orderCoins, DEFAULT_PROFILE, carSvg, EXPERT_UNLOCK_VALUE, BOSS_UNLOCK } from './shop.js';
+import { SHOP, ITEMS, TROPHIES, TROPHY_BONUS, orderCoins, DEFAULT_PROFILE, carSvg, EXPERT_UNLOCK_VALUE, BOSS_UNLOCK, extendDaysFor, GRACE_DAYS, lateDays } from './shop.js';
 import {
   ensureAudioGraph, resumeAudio, createVisualizer, startRecording, stopRecording, isRecording,
 } from './visualizer.js';
-import { CUSTOMERS, CUSTOMER_BY_ID, ARCHETYPES, EXPERTS, BOSS, avatarSvg, vipAvatar, VIP_LINES, firstName } from './customers.js';
+import { CUSTOMERS, CUSTOMER_BY_ID, ARCHETYPES, EXPERTS, BOSS, avatarSvg, vipAvatar, VIP_LINES, firstName, extendReply } from './customers.js';
 import { PEOPLE } from './people.js';
 import { cloud } from './cloud.js';
 import {
@@ -276,18 +276,21 @@ function fmtSize(bytes) {
   return bytes > 1e6 ? `${(bytes / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1e3))} KB`;
 }
 
+const graceEnd = (o) => o.deadline + GRACE_DAYS * DAY;
 function dueInfo(o) {
+  if (o.status === 'expired') return { text: 'Abgelaufen', cls: 'red' };
   if (!o.deadline) return { text: 'Ohne Deadline', cls: '' };
   if (o.status === 'delivered') {
-    const late = o.deliveredAt > o.deadline;
-    return late ? { text: 'Verspätet abgegeben', cls: 'orange' } : { text: 'Pünktlich abgegeben', cls: 'green' };
+    const late = lateDays(o);
+    return late ? { text: `${late} ${late === 1 ? 'Tag' : 'Tage'} zu spät abgegeben`, cls: 'orange' } : { text: 'Pünktlich abgegeben', cls: 'green' };
   }
   const now = new Date();
   const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const days = Math.floor((o.deadline - startToday) / DAY);
   if (o.deadline < now.getTime()) {
-    const over = Math.max(1, Math.ceil((now - o.deadline) / DAY));
-    return { text: over === 1 ? 'Überfällig' : `Seit ${over} Tagen überfällig`, cls: 'red' };
+    const over = Math.max(1, Math.ceil((now - o.deadline) / DAY - 0.01));
+    const left = Math.max(0, Math.ceil((graceEnd(o) - now) / DAY));
+    return { text: `${over === 1 ? 'Überfällig' : `${over} Tage überfällig`} · noch ${left} ${left === 1 ? 'Tag' : 'Tage'}`, cls: 'red' };
   }
   if (days === 0) return { text: 'Heute fällig', cls: 'red' };
   if (days === 1) return { text: 'Morgen fällig', cls: 'orange' };
@@ -395,7 +398,19 @@ async function newPending(from = Date.now()) {
   return p;
 }
 
+// Overdue for more than GRACE_DAYS → expired (stays in the history, frees the slot).
+async function expireOverdue() {
+  const now = Date.now();
+  for (const o of state.orders.filter((x) => isActive(x) && x.deadline && now > graceEnd(x))) {
+    o.status = 'expired';
+    o.expiredAt = now;
+    await saveOrder(o);
+    toast(`⌛ Abgelaufen: ${orderTitle(o)}`);
+  }
+}
+
 async function checkArrivals() {
+  await expireOverdue();
   const now = Date.now();
   let pending = (await db.get('pendingOrder')) || (await newPending(now));
   if (now >= pending.createdAt && activeCount() < state.settings.maxActive) {
@@ -501,6 +516,10 @@ async function scheduleNative(pending) {
       extra: { orderId: o.id },
     });
   }
+  for (const o of state.orders.filter((x) => isActive(x) && x.deadline)) {
+    const warn = slotStart(graceEnd(o) - 2 * DAY);
+    if (warn > o.deadline) list.push({ id: notifId(o.id + ':grace'), title: `⌛ Läuft in 2 Tagen ab: ${orderTitle(o)}`, body: 'Letzte Chance, ihn noch abzugeben – danach ist er weg.', at: warn, extra: { orderId: o.id } });
+  }
   for (const o of state.orders.filter((x) => visible(x) && x.review && !x.review.rating)) {
     const at = new Date(slotStart(o.review.opensAt));
     list.push({
@@ -592,7 +611,8 @@ function orderCard(o) {
   const due = dueInfo(o);
   const frac = o.deadline ? Math.min(1, Math.max(0, (Date.now() - o.createdAt) / (o.deadline - o.createdAt))) : 0;
   const thr = thrFor(o);
-  const status = o.status === 'new' ? '<span class="pill accent">Neu</span>'
+  const status = o.status === 'expired' ? '<span class="pill red">⌛ Abgelaufen</span>'
+    : o.status === 'new' ? '<span class="pill accent">Neu</span>'
     : o.status === 'in_progress' ? '<span class="pill">In Arbeit</span>'
     : reviewOpen(o) ? '<span class="pill accent">Bewerten</span>'
     : reviewWaiting(o) ? '<span class="pill">🔒 Morgen</span>'
@@ -1179,7 +1199,7 @@ function renderShopSheet() {
     </div>
     <div class="chips" style="margin-top:10px">${Object.entries(SHOP).map(([k, c]) => `<button class="chip glass ${k === tab ? 'on' : ''}" data-action="shop-tab" data-v="${k}">${c.label}</button>`).join('')}</div>
     <div class="shop-grid ${tab}">${items.map(tile).join('')}</div>
-    <p class="footnote">Coins gibt's für jede Abgabe (+20), Pünktlichkeit (+10), geschaffte Challenges (+15), gute Bewertungen (+10/+25) und Trophäen (+${TROPHY_BONUS}).</p>
+    <p class="footnote">Coins gibt's für jede Abgabe (+20), Pünktlichkeit (+10, verlängert +5), geschaffte Challenges (+15), gute Bewertungen (+10/+25) und Trophäen (+${TROPHY_BONUS}). Zu spät: 1–7 Tage halbe Coins, danach keine.</p>
   `;
 }
 
@@ -1429,6 +1449,9 @@ function renderOrderSheet(o) {
       <div class="thread-meta">${fmtDate(o.createdAt)}, ${fmtTime(o.createdAt)}</div>
       <div class="bubble them">${esc(o.brief)}</div>
       ${o.status !== 'new' ? '<div class="bubble me">Bin dran! 🎛️</div>' : ''}
+      ${(o.extensions || []).map((x) => `<div class="bubble me">Kann ich ${x.days} Tage mehr Zeit haben? 🙏</div>
+        <div class="thread-meta">${fmtDate(x.at)}, ${fmtTime(x.at)}</div>
+        <div class="bubble them">${esc(x.reply)}</div>`).join('')}
       ${(o.verdicts || []).map((v) => `<div class="bubble me">Hier ist meine Version 🎧</div>
         <div class="thread-meta">${fmtDate(v.at)} · deine Bewertung ${v.rating}/10</div>
         <div class="bubble them">${v.accepted ? '✅' : '❌'} ${esc(v.reply)}</div>`).join('')}
@@ -1456,7 +1479,11 @@ function renderOrderSheet(o) {
     </div>
     ${GENRES[o.genre] ? `<details class="guide glass"><summary>📚 Genre-Guide: ${esc(o.genre)}</summary>${genreGuide(o.genre)}</details>` : ''}
 
-    ${o.status === 'new' && (o.type === 'video' || o.type === 'vocals') ? `
+    ${o.status === 'expired' ? `
+      <div class="review glass"><div class="review-score">⌛</div><div><b>Abgelaufen</b>
+        <span>Mehr als ${GRACE_DAYS} Tage nach der Deadline – abgeben geht nicht mehr. Bleibt in deiner Historie.</span></div></div>
+      ${subs.length ? `<div class="section-title" style="margin-top:14px">Versionen <small>${subs.length}</small></div>${subs.map((x) => subRow(o, x)).join('')}` : ''}
+    ` : o.status === 'new' && (o.type === 'video' || o.type === 'vocals') ? `
       <button class="btn" data-action="accept" data-id="${o.id}">Los geht's ${T.icon}</button>
       <button class="btn secondary" data-action="reroll-concept" data-id="${o.id}" style="margin-top:10px">🎲 Anderes Konzept</button>
       ${o.prompt ? `<button class="btn secondary" data-action="reroll-theme" data-id="${o.id}" style="margin-top:10px">✍️ Anderes Thema</button>` : ''}
@@ -1474,6 +1501,7 @@ function renderOrderSheet(o) {
         ? `<button class="btn secondary" style="margin-top:10px" data-action="stop-session">⏹ Session beenden (${fmtClock(Date.now() - state.activeSession.start)})</button>`
         : state.activeSession ? '' : `<button class="btn secondary" style="margin-top:10px" data-action="start-session" data-id="${o.id}">⏱ Session für diesen Auftrag starten</button>`) : ''}
       ${!delivered && (subs.length || o.tier === 'inbox') ? `<button class="btn" style="margin-top:10px" data-action="deliver" data-id="${o.id}">${selfMade(o) ? 'Als erledigt markieren ✓' : `v${subs[0].version} abgeben`}</button>` : ''}
+      ${!delivered && o.deadline ? deadlineTools(o) : ''}
     `}
 
     ${['vocals', 'full_song', 'hook', 'release'].includes(o.type) ? `
@@ -1489,6 +1517,19 @@ function renderOrderSheet(o) {
     </div>
     <button class="btn danger" data-action="delete-order" data-id="${o.id}" style="margin-top:8px">${o.type === 'own' ? 'Projekt' : 'Auftrag'} löschen</button>
   `;
+}
+
+// ⏳ Extend once / what happens when you're late.
+function deadlineTools(o) {
+  const now = Date.now();
+  const over = now > o.deadline;
+  const days = extendDaysFor(o);
+  const note = over
+    ? `⚠️ Überfällig – du kannst noch bis <b style="display:inline">${fmtDate(graceEnd(o))}</b> abgeben. 1–7 Tage zu spät: halbe Coins, 8–${GRACE_DAYS} Tage: keine Coins (XP & Bewertung zählen trotzdem). Danach läuft der Auftrag ab.`
+    : o.extended ? `Schon verlängert – neue Deadline ${fmtDate(o.deadline)}. Danach hast du noch ${GRACE_DAYS} Tage Kulanz (mit weniger Coins).`
+    : `Zu knapp? Einmal verlängern geht (+${days} Tage, Pünktlich-Bonus dann nur halb${o.rush ? ', kein doppelter Eil-Bonus' : ''}). Und selbst nach der Deadline kannst du noch ${GRACE_DAYS} Tage abgeben.`;
+  return `${o.extended ? '' : `<button class="btn secondary" style="margin-top:10px" data-action="extend" data-id="${o.id}">⏳ Deadline verlängern (+${days} Tage)</button>`}
+    <p class="footnote" style="margin:8px 4px 0">${note}</p>`;
 }
 
 // "Sleep on it" review: day after delivery, listen again, rate 1–10.
@@ -1904,6 +1945,24 @@ const actions = {
 
   upload: (el) => upload(el.dataset.id),
 
+  async extend(el) {
+    const o = state.orders.find((x) => x.id === el.dataset.id);
+    if (!o?.deadline || o.extended) return;
+    const days = extendDaysFor(o);
+    if (!confirm(`Deadline um ${days} Tage verlängern? Geht nur einmal pro Auftrag – der Pünktlich-Bonus ist dann nur halb so hoch${o.rush ? ' und der doppelte Eil-Bonus fällt weg' : ''}.`)) return;
+    const d = new Date(Math.max(o.deadline, Date.now()));
+    d.setDate(d.getDate() + days);
+    d.setHours(23, 59, 0, 0);
+    const reply = selfMade(o) ? `Neue Deadline: ${fmtDate(d.getTime())} – du schaffst das 💪` : extendReply(customerOf(o));
+    o.extensions = [...(o.extensions || []), { at: Date.now(), days, from: o.deadline, reply }];
+    o.deadline = d.getTime();
+    o.extended = true;
+    if (o.status === 'new') o.status = 'in_progress';
+    await saveOrder(o);
+    toast(`⏳ Neue Deadline: ${fmtDate(o.deadline)}`);
+    render(); renderSheet();
+  },
+
   async deliver(el) {
     const o = state.orders.find((x) => x.id === el.dataset.id);
     const latest = o.submissions.length ? o.submissions.reduce((a, b) => (b.version > a.version ? b : a)) : null;
@@ -1921,6 +1980,8 @@ const actions = {
       o.review = { opensAt: reviewOpensAt(o.deliveredAt), listenedSec: 0, duration: latest.duration || null, rating: null };
     }
     await saveOrder(o);
+    const late = lateDays(o);
+    if (late) setTimeout(() => toast(late > 7 ? `⌛ ${late} Tage zu spät – diesmal keine Coins, aber XP & Bewertung zählen` : `⌛ ${late} ${late === 1 ? 'Tag' : 'Tage'} zu spät – halbe Coins`), 2800);
     rewardToast(before, o.minRating ? `Abgegeben – Urteil nach deiner Bewertung (mind. ${o.minRating}/10)` : o.review ? 'Abgegeben ✅ Morgen nochmal anhören' : selfMade(o) ? 'Fertig ✅' : 'Abgegeben ✅');
     render(); renderSheet();
   },

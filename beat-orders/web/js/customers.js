@@ -681,3 +681,27 @@ export const VIP_LINES = [
   'heute noch was abgeben? dann bist du mein ceo, no cap 💼💋',
   'reminder: du bist iconic. jetzt ab ins studio, bestie 🎧💖',
 ];
+
+// Reaction when you ask for more time (⏳ Deadline verlängern).
+const EXTEND_REPLIES = {
+  chaya: ['okayyy 2 tage mehr babe 💅 aber dann will ich SLAY hören', 'hmm fine… ich mach solang meine nägel neu 💅✨'],
+  rentner: ['Na gut, junger Mann. Zwei Tage. Aber dann ist Schluss.', 'In Ordnung. Ich warte. Bin ja Rentner, ich hab Zeit.'],
+  kid: ['okay aber mama sagt ich darf nur noch 2 tage warten 😭', 'boah okay… ich zähl die stunden 🍭'],
+  gamer: ['respawn-timer +2 tage, ok 🎮', 'lag verstanden bro, gg, nimm dir die zeit'],
+  rapper: ['Safe Bruder, 2 Tage. Aber dann muss es brennen 🔥', 'Kein Stress, Qualität vor Zeit. Aber nicht verpennen.'],
+  fitness: ['Okay, 2 Tage Regeneration 💪 dann will ich PR-Energie!', 'Rest Day genehmigt. Danach Vollgas 🏋️'],
+  crypto: ['Deadline verschoben wie mein Break-even 📉 ok', 'HODL. Ich warte 2 Tage. WAGMI 🚀'],
+  grantler: ['Na bitte. Zwei Tag. Oba dann gibt\'s ka Ausred mehr.', 'Typisch. Aber guat, i wart.'],
+  mama: ['Aber natürlich Schatz, lass dir Zeit 🥰 hast du schon gegessen?', 'Kein Problem! Schlaf auch genug ❤️'],
+  eso: ['Die Zeit ist eine Illusion ✨ nimm dir, was dein Herz braucht 🙏', 'Merkur ist rückläufig, das verstehe ich total 🔮'],
+  business: ['Verstanden. Neue Deadline notiert. Bitte halten Sie diese ein.', 'OK, wir verschieben den Milestone. Keine weitere Verlängerung.'],
+  hipster: ['Kunst braucht Zeit. Ich respektiere das. ☕', 'Nimm dir die Tage, rush ist eh mainstream.'],
+  weird: ['okay. ich warte im schrank bis dahin.', '2 tage? ich zähl sie in schildkrötenschritten 🐢'],
+  expert: ['Vier Tage mehr. Nutze sie – ich erwarte trotzdem Perfektion.', 'Gut. Lieber später und richtig als pünktlich und mittelmäßig.'],
+  boss: ['Eine Woche mehr. Mehr bekommst du nie wieder von mir.', 'Ich gewähre dir Zeit. Enttäusche mich nicht.'],
+};
+export function extendReply(customer) {
+  const list = EXTEND_REPLIES[customer?.arch] || ['Okay, du bekommst etwas mehr Zeit 👍'];
+  const base = list[Math.floor(Math.random() * list.length)];
+  return customer?.sig && !['expert', 'boss'].includes(customer.arch) ? `${base}\n${customer.sig}` : base;
+}

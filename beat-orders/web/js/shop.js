@@ -139,18 +139,30 @@ export const TROPHIES = [
 ];
 export const TROPHY_BONUS = 50;
 
+// Deadline extension (once per order) and the grace period after the deadline.
+export const EXTEND_DAYS = { expert: 4, boss: 7 };
+export const extendDaysFor = (o) => EXTEND_DAYS[o.tier] || 2;
+export const GRACE_DAYS = 14;
+// Whole days a delivery came after the deadline (0 = on time).
+export const lateDays = (o) => (o.deadline && o.deliveredAt > o.deadline ? Math.max(1, Math.ceil((o.deliveredAt - o.deadline) / 864e5 - 0.01)) : 0);
+
 // Coins for one delivered order.
 export function orderCoins(o, threshold) {
   if (o.deleted || o.status !== 'delivered') return 0;
   let c = o.type === 'own' ? 15 : 20;
-  if (o.deadline && o.deliveredAt <= o.deadline) c += 10;
+  const onTime = o.deadline && o.deliveredAt <= o.deadline;
+  if (onTime) c += o.extended ? 5 : 10; // verlängert → halber Pünktlich-Bonus
   if (o.challenge?.done) c += 15;
   const r = o.review?.rating;
   if (r) c += r >= threshold ? 25 : r >= 7 ? 10 : 0;
   if (o.tier === 'expert' && o.accepted) c += 150;
   if (o.tier === 'boss' && o.accepted) c += 1500;
-  if (o.rush && o.deadline && o.deliveredAt <= o.deadline) c *= 2; // ⚡ Eil-Auftrag pünktlich = doppelt
+  if (o.rush && onTime && !o.extended) c *= 2; // ⚡ Eil-Auftrag pünktlich = doppelt
   if (o.tier === 'event') c += 150; // ✨ Special Event
+  // Late: 1–7 days → half the coins, 8–14 days → none (still counts for XP).
+  const late = lateDays(o);
+  if (late > 7) c = 0;
+  else if (late > 0) c = Math.round(c / 2);
   return c;
 }
 
