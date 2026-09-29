@@ -1,0 +1,14 @@
+{
+  "appId": "de.beatorders.app",
+  "appName": "Beat Orders",
+  "webDir": "web",
+  "android": {
+    "backgroundColor": "#000000"
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_orders",
+      "iconColor": "#FF2D55"
+    }
+  }
+}

@@ -1,11 +1,39 @@
 # 🎧 Beat Orders
 
-Eine iPhone-App (als installierbare Web-App/PWA), die dir **realistische Aufträge**
+Eine Handy-App für Android und iPhone, die dir **realistische Aufträge**
 für Beats, Songs, Vocal Chains, Hooks und Remixe schickt, damit du regelmäßig in
 FL Studio übst. Du lädst deine Exporte hoch, gibst ab, bekommst Feedback vom
 „Kunden“ und hast eine **Bibliothek mit allem, was du je gemacht hast**.
 
-Die App funktioniert auch als normale Website, am Handy, Laptop und Tablet.
+Es gibt sie in drei Varianten mit demselben Code:
+
+- **Android-App (APK)**, z. B. für das Nothing Phone 2a. Mitteilungen kommen auch bei geschlossener App.
+- **Installierbare Web-App** auf Android (Chrome) und iPhone (Safari).
+- **Normale Website** am Laptop.
+
+## 📱 Android-App installieren (Nothing Phone & Co.)
+
+### Weg A: Fertige APK von GitHub (ohne Android Studio)
+Bei jedem Push baut GitHub die APK automatisch (`.github/workflows/beat-orders-apk.yml`).
+
+1. Auf dem Handy im GitHub-Repo **Releases → „Beat Orders (neueste Version)“** öffnen.
+2. `beat-orders.apk` herunterladen und öffnen.
+3. Android fragt einmalig, ob der Browser/Dateimanager **Apps installieren** darf. Erlauben.
+4. App öffnen und **Mitteilungen erlauben**.
+
+Updates installierst du genauso: neue APK öffnen, **„Aktualisieren“** wählen. Deine Daten bleiben erhalten,
+weil jede Version mit demselben Schlüssel signiert ist (`android/app/beat-orders-debug.keystore`).
+
+### Weg B: Mit Android Studio
+```bash
+cd beat-orders
+npm install
+npx cap sync android     # kopiert web/ ins Android-Projekt
+npx cap open android     # öffnet Android Studio
+```
+Handy per USB anschließen (Entwickleroptionen + **USB-Debugging** an) und in Android Studio auf **▶ Run** drücken.
+
+> Nach jeder Änderung in `web/` erneut `npx cap sync android` ausführen.
 
 ## Features (Grundgerüst)
 
@@ -17,40 +45,34 @@ Die App funktioniert auch als normale Website, am Handy, Laptop und Tablet.
 | **Abgabe** | Eine Version abgeben. Der Kunde antwortet mit Feedback und Sternen, pünktlich oder zu spät zählt. |
 | **Bibliothek** | Alle Uploads nach Monat gruppiert, filterbar nach Art und Genre, mit Suche und Stats (abgegeben, Pünktlichkeit, Uploads). |
 | **Player** | Mini-Player im Apple-Music-Stil, Steuerung auf dem Sperrbildschirm (Media Session), Teilen über das iOS-Share-Sheet. |
-| **iPhone** | Liquid-Glass-Design, Dark Mode, Home-Bildschirm-Icon, Vollbild, Mitteilungen bei neuen Aufträgen, App-Badge mit neuen Aufträgen, offline nutzbar. |
+| **Handy** | Liquid-Glass-Design, Dark Mode, eigenes App-Icon, Vollbild, Mitteilungen bei neuen Aufträgen (Android-App: auch bei geschlossener App) plus Erinnerung am Abgabetag, Android-Zurück-Taste, offline nutzbar. |
 | **Speicher** | Lokal auf dem Gerät (IndexedDB) **plus optional in der Cloud** (Supabase), damit nichts verloren geht und alles auf mehreren Geräten da ist. |
 | **Backup** | Export/Import als JSON. |
 
-## 1. Online stellen
+## 🌐 Web-Version online stellen (optional)
 
-Die App besteht nur aus statischen Dateien, ohne Build-Schritt. Wichtig ist nur **HTTPS**.
-iOS erlaubt Installation und Mitteilungen nur über HTTPS.
+Der Ordner `web/` besteht nur aus statischen Dateien, ohne Build-Schritt. Wichtig ist nur **HTTPS**.
+Installation und Mitteilungen gehen nur über HTTPS.
 
 **Am einfachsten: Netlify Drop**
 1. <https://app.netlify.com/drop> öffnen.
-2. Den Ordner `beat-orders/` hineinziehen.
+2. Den Ordner `beat-orders/web/` hineinziehen.
 3. Du bekommst sofort eine `https://…netlify.app`-Adresse.
 
-**Oder GitHub Pages / Vercel / Cloudflare Pages:** den Ordner `beat-orders/` als
+**Oder GitHub Pages / Vercel / Cloudflare Pages:** den Ordner `beat-orders/web/` als
 Root veröffentlichen.
 
 **Lokal testen:**
 ```bash
 cd beat-orders
-python3 -m http.server 8080
+npm run serve
 # → http://localhost:8080
 ```
 
-## 2. Aufs iPhone installieren
+Installieren: auf Android in Chrome **⋮ → App installieren**, auf dem iPhone in Safari
+**Teilen → Zum Home-Bildschirm** (Mitteilungen dort ab iOS 16.4).
 
-1. Die Adresse in **Safari** öffnen.
-2. **Teilen** → **Zum Home-Bildschirm** antippen.
-3. Die App vom Home-Bildschirm öffnen, dann **Einstellungen → Mitteilungen** einschalten.
-
-> Mitteilungen im Web gehen auf dem iPhone ab iOS 16.4, und nur, wenn die App
-> über „Zum Home-Bildschirm“ installiert ist.
-
-## 3. Cloud-Speicher einrichten (optional, empfohlen)
+## ☁️ Cloud-Speicher einrichten (optional, empfohlen)
 
 Supabase ist kostenlos (500 MB Datenbank, 1 GB Dateien, max. 50 MB pro Datei).
 
@@ -72,30 +94,33 @@ Auf einem zweiten Gerät einfach dieselben Daten eintragen und anmelden.
 
 ```
 beat-orders/
-├── index.html            App-Hülle (Tab-Bar, Sheet, Mini-Player)
-├── manifest.webmanifest  PWA-Infos (Name, Icon, Vollbild)
-├── sw.js                 Service Worker: Offline-Cache, Mitteilungen, vorbereitet für Push
-├── css/app.css           iOS/Liquid-Glass-Design, Light und Dark Mode
-├── js/app.js             UI, Aktionen, Player, Uploads
-├── js/generator.js       Auftrags-Generator: Genres, Instrumente, Kunden, Texte, Zeitplan
-├── js/db.js              Lokale Datenbank (IndexedDB)
-├── js/cloud.js           Supabase-Sync (Aufträge und Dateien)
-├── icons/                App-Icons
-└── supabase/schema.sql   Cloud-Setup
+├── web/                    Die eigentliche App (HTML/CSS/JS, kein Build nötig)
+│   ├── index.html          App-Hülle (Tab-Bar, Sheet, Mini-Player)
+│   ├── manifest.webmanifest, sw.js   PWA: Icon, Vollbild, Offline, Mitteilungen
+│   ├── css/app.css         Liquid-Glass-Design, Light und Dark Mode
+│   └── js/
+│       ├── app.js          UI, Aktionen, Player, Uploads
+│       ├── generator.js    Auftrags-Generator: Genres, Instrumente, Kunden, Texte, Zeitplan
+│       ├── native.js       Android-Brücke: Mitteilungen, Teilen, Zurück-Taste
+│       ├── db.js           Lokale Datenbank (IndexedDB)
+│       └── cloud.js        Supabase-Sync (Aufträge und Dateien)
+├── android/                Android-Studio-Projekt (Capacitor)
+├── capacitor.config.json   App-ID, Name, Mitteilungs-Icon
+├── package.json
+└── supabase/schema.sql     Cloud-Setup
 ```
 
 **Deine Musik anpassen:** Genres (BPM-Bereiche, Tonarten, Instrumente), Kundennamen
-und Auftragstexte stehen als einfache Listen oben in `js/generator.js`.
+und Auftragstexte stehen als einfache Listen oben in `web/js/generator.js`.
 
 ## Bekannte Grenzen und nächste Schritte
 
-- **Mitteilungen bei geschlossener App:** Aktuell prüft die App beim Öffnen (und
-  jede Minute, solange sie offen ist), ob ein neuer Auftrag fällig ist, und meldet
-  ihn dann. Für echte Push-Nachrichten bei komplett geschlossener App braucht es
-  einen kleinen Server-Job, z. B. eine Supabase Edge Function mit Cron und Web Push.
-  `sw.js` hat den `push`-Handler dafür schon eingebaut.
-- **Native App (App Store / TestFlight):** Die PWA lässt sich später mit Capacitor
-  als echte iOS-App verpacken. Dafür braucht es einen Mac mit Xcode und einen
-  Apple-Developer-Account.
+- **Mitteilungen bei geschlossener App:** In der Android-App wird der nächste Auftrag
+  vorab geplant und als Mitteilung terminiert, das klappt also auch bei geschlossener App.
+  In der Web-Version erscheint ein neuer Auftrag erst beim Öffnen der App.
+  Für echte Push-Nachrichten im Web bräuchte es einen Server-Job
+  (z. B. Supabase Edge Function mit Web Push), `sw.js` hat den `push`-Handler dafür schon.
+- **Akku-Optimierung:** Manche Android-Hersteller verzögern geplante Mitteilungen.
+  Falls sie zu spät kommen: *Einstellungen → Apps → Beat Orders → Akku → Nicht eingeschränkt*.
 - **Als Nächstes:** deine Genres, Instrumente und Vorlieben, Schwierigkeitsstufen,
   Auftrags-Serien (z. B. „Beat-Tape mit 5 Tracks“), Streaks und Level, Waveform-Ansicht.

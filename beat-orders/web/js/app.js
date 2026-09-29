@@ -4,6 +4,9 @@ import {
   clientReply, nextArrival, uid,
 } from './generator.js';
 import { cloud } from './cloud.js';
+import {
+  isNative, App, LocalNotifications, notifId, requestNotificationPermission, scheduleAll, shareBlob,
+} from './native.js';
 
 // ---------------------------------------------------------------- state --
 
@@ -105,6 +108,7 @@ async function saveOrder(o, { silent } = {}) {
   const i = state.orders.findIndex((x) => x.id === o.id);
   if (i >= 0) state.orders[i] = o; else state.orders.push(o);
   updateBadge();
+  scheduleNative();
   if (!silent) syncSoon();
 }
 
@@ -139,27 +143,72 @@ async function runSync(quiet) {
 
 // ----------------------------------------------------- order arrivals --
 
+// The next order is generated ahead of time and kept as "pendingOrder" until
+// its arrival time. That way the Android app can schedule a notification with
+// the real client + brief even while the app is closed.
+
+const activeCount = () => state.orders.filter((o) => isActive(o) && o.type !== 'own').length;
+
+async function newPending(from = Date.now()) {
+  const p = generateOrder(state.settings, { at: nextArrival(state.settings, from) });
+  await db.set('pendingOrder', p);
+  return p;
+}
+
 async function checkArrivals() {
   const now = Date.now();
-  let next = await db.get('nextOrderAt');
-  if (!next) {
-    next = nextArrival(state.settings, now);
-    await db.set('nextOrderAt', next);
+  let pending = (await db.get('pendingOrder')) || (await newPending(now));
+  if (now >= pending.createdAt && activeCount() < state.settings.maxActive) {
+    // Waited long (e.g. because you were at your limit)? Then the clock starts now.
+    const delay = now - pending.createdAt;
+    if (delay > 12 * 3600e3) {
+      const d = new Date(pending.deadline + delay);
+      d.setHours(23, 59, 0, 0);
+      pending.deadline = d.getTime();
+      pending.createdAt = now;
+    }
+    pending.updatedAt = now;
+    await receiveOrder(pending);
+    pending = await newPending(now);
   }
-  if (now >= next) {
-    const active = state.orders.filter((o) => isActive(o) && o.type !== 'own').length;
-    if (active < state.settings.maxActive) await receiveOrder(generateOrder(state.settings));
-    next = nextArrival(state.settings, now);
-    await db.set('nextOrderAt', next);
-  }
-  state.nextOrderAt = next;
+  state.nextOrderAt = pending.createdAt;
+  scheduleNative(pending);
 }
 
 async function receiveOrder(order) {
   await saveOrder(order);
   toast(`📥 Neuer Auftrag von ${order.client}`);
-  notify(order);
+  if (!isNative) notify(order); // Android already showed the scheduled notification
   render();
+}
+
+// Android: (re)plan the upcoming order notification plus deadline reminders.
+async function scheduleNative(pending) {
+  if (!isNative || !state.settings.notifications) return;
+  pending = pending || (await db.get('pendingOrder'));
+  const list = [];
+  if (pending && activeCount() < state.settings.maxActive) {
+    list.push({
+      id: 1,
+      title: `📥 ${pending.client} · ${ORDER_TYPES[pending.type].label}`,
+      body: pending.brief,
+      at: pending.createdAt,
+      extra: { orderId: pending.id },
+    });
+  }
+  for (const o of state.orders.filter(isActive)) {
+    if (!o.deadline) continue;
+    const at = new Date(o.deadline);
+    at.setHours(state.settings.eveningStart, 0, 0, 0); // evening of the deadline day
+    list.push({
+      id: notifId(o.id),
+      title: `⏰ Heute fällig: ${orderTitle(o)}`,
+      body: o.submissions.length ? 'Du hast schon eine Version – abgeben nicht vergessen!' : 'Noch nichts hochgeladen. Schaffst du es heute noch?',
+      at: at.getTime(),
+      extra: { orderId: o.id },
+    });
+  }
+  try { await scheduleAll(list); } catch (e) { console.warn('schedule', e); }
 }
 
 async function notify(order) {
@@ -203,11 +252,19 @@ function render() {
 
 function installHint() {
   const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  if (isNative || standalone || state.hideInstallHint) return '';
   const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
-  if (standalone || !ios || state.hideInstallHint) return '';
+  const android = /Android/.test(navigator.userAgent);
+  if (!ios && !android) return '';
+  const how = ios
+    ? 'Tippe unten in Safari auf <b style="display:inline">Teilen</b> → <b style="display:inline">Zum Home-Bildschirm</b>.'
+    : state.installPrompt
+      ? 'Installiere die App auf deinem Startbildschirm.'
+      : 'Tippe in Chrome oben rechts auf <b style="display:inline">⋮</b> → <b style="display:inline">App installieren</b>.';
   return `<div class="hint glass">
     <div style="font-size:26px">📲</div>
-    <div><b>Als App installieren</b>Tippe unten in Safari auf <b style="display:inline">Teilen</b> → <b style="display:inline">Zum Home-Bildschirm</b>. Dann bekommst du auch Mitteilungen.</div>
+    <div><b>Als App installieren</b>${how} Dann bekommst du auch Mitteilungen.
+      ${state.installPrompt ? '<br><button class="btn small" style="margin-top:8px" data-action="install">Installieren</button>' : ''}</div>
     <button class="x" data-action="hide-hint" aria-label="Schließen">×</button>
   </div>`;
 }
@@ -246,9 +303,10 @@ function renderOrders() {
   const doneWeek = state.orders.filter((o) => visible(o) && o.status === 'delivered' && o.deliveredAt > weekAgo).length;
   const name = state.settings.artistName ? `, ${esc(state.settings.artistName)}` : '';
 
-  const nextHint = state.nextOrderAt
-    ? `Nächster Auftrag voraussichtlich ${fmtDate(state.nextOrderAt, { weekday: 'long' })} 👀`
-    : '';
+  const nextHint = !state.nextOrderAt ? ''
+    : state.nextOrderAt <= Date.now()
+      ? 'Ein Kunde wartet schon – sobald du unter deinem Limit bist, kommt der Auftrag rein 👀'
+      : `Nächster Auftrag voraussichtlich ${fmtDate(state.nextOrderAt, { weekday: 'long' })} 👀`;
 
   return `
     ${installHint()}
@@ -403,7 +461,9 @@ function renderSettings() {
       <div class="row"><span class="label">Neue Aufträge melden</span>${toggle('notifications', s.notifications)}</div>
       <button class="row tap" data-action="test-notification"><span class="label" style="color:var(--accent)">Test-Mitteilung senden</span></button>
     </div>
-    <p class="footnote">Auf dem iPhone funktionieren Mitteilungen, wenn die App über „Zum Home-Bildschirm“ installiert ist (iOS 16.4+).</p>
+    <p class="footnote">${isNative
+      ? 'Neue Aufträge melden sich auch, wenn die App geschlossen ist – plus eine Erinnerung am Abend des Abgabetags.'
+      : 'Auf dem Handy funktionieren Mitteilungen, wenn die App installiert ist (Android: Chrome → App installieren, iPhone: Zum Home-Bildschirm, iOS 16.4+).'}</p>
 
     ${renderCloudSettings()}
 
@@ -702,6 +762,10 @@ async function shareFile(orderId, subId) {
   let blob;
   try { blob = await getBlob(o, s); } catch (e) { return toast(e.message); }
   if (!blob) return toast('Datei ist auf diesem Gerät nicht vorhanden.');
+  if (isNative) {
+    try { await shareBlob(blob, s.name, orderTitle(o)); } catch (e) { if (!/cancel/i.test(e.message)) toast(e.message); }
+    return;
+  }
   const file = new File([blob], s.name, { type: s.mime || blob.type });
   if (navigator.canShare?.({ files: [file] })) {
     try { await navigator.share({ files: [file], title: orderTitle(o) }); } catch {}
@@ -718,6 +782,14 @@ async function shareFile(orderId, subId) {
 
 const actions = {
   'tab': (el) => { state.tab = el.dataset.tab; render(); window.scrollTo(0, 0); },
+  async install() {
+    const p = state.installPrompt;
+    if (!p) return;
+    state.installPrompt = null;
+    p.prompt();
+    await p.userChoice.catch(() => {});
+    render();
+  },
   'hide-hint': async () => { state.hideInstallHint = true; await db.set('hideInstallHint', true); render(); },
   'open-order': (el) => openSheet({ kind: 'order', id: el.dataset.id }),
   'close-sheet': () => closeSheet(),
@@ -817,11 +889,21 @@ const actions = {
     else s[key] = Math.min(max, Math.max(min, s[key] + d));
     if (s.eveningEnd <= s.eveningStart) s.eveningEnd = s.eveningStart + 1;
     await saveSettings();
-    if (key === 'ordersPerWeek') await rescheduleNext();
+    if (key === 'type') await refreshPending(true);
+    else if (key !== 'maxActive') await refreshPending(false);
+    else scheduleNative();
     render();
   },
 
   async 'test-notification'() {
+    if (isNative) {
+      if (!(await requestNotificationPermission())) return toast('Mitteilungen sind nicht erlaubt.');
+      await LocalNotifications.schedule({ notifications: [{
+        id: 2, title: 'Beat Orders', body: 'So sehen neue Aufträge aus 🎧', smallIcon: 'ic_stat_orders',
+        schedule: { at: new Date(Date.now() + 3000), allowWhileIdle: true },
+      }] });
+      return toast('Kommt in 3 Sekunden …');
+    }
     if (!('Notification' in window)) return toast('Mitteilungen gehen erst nach „Zum Home-Bildschirm“.');
     if (Notification.permission !== 'granted') await Notification.requestPermission();
     if (Notification.permission !== 'granted') return toast('Mitteilungen sind nicht erlaubt.');
@@ -833,6 +915,10 @@ const actions = {
   async export() {
     const data = JSON.stringify({ app: 'beat-orders', version: 1, exportedAt: Date.now(), settings: state.settings, orders: state.orders }, null, 2);
     const file = new File([data], `beat-orders-backup-${new Date().toISOString().slice(0, 10)}.json`, { type: 'application/json' });
+    if (isNative) {
+      try { await shareBlob(file, file.name, 'Beat Orders Backup'); } catch (e) { if (!/cancel/i.test(e.message)) toast(e.message); }
+      return;
+    }
     if (navigator.canShare?.({ files: [file] })) {
       try { await navigator.share({ files: [file] }); } catch {}
     } else {
@@ -908,10 +994,15 @@ const actions = {
   },
 };
 
-async function rescheduleNext() {
-  const next = nextArrival(state.settings);
-  await db.set('nextOrderAt', next);
-  state.nextOrderAt = next;
+// Settings changed → re-roll the upcoming order (optionally keeping its time).
+async function refreshPending(keepTime) {
+  const old = await db.get('pendingOrder');
+  const p = keepTime && old
+    ? generateOrder(state.settings, { at: old.createdAt })
+    : generateOrder(state.settings, { at: nextArrival(state.settings) });
+  await db.set('pendingOrder', p);
+  state.nextOrderAt = p.createdAt;
+  scheduleNative(p);
 }
 
 document.addEventListener('click', (e) => {
@@ -949,6 +1040,12 @@ document.addEventListener('change', async (e) => {
     const s = state.settings;
     if (key === 'genre') {
       s.genres = el.checked ? [...new Set([...s.genres, sub])] : s.genres.filter((g) => g !== sub);
+      await refreshPending(true);
+    } else if (key === 'notifications' && isNative) {
+      s.notifications = el.checked && (await requestNotificationPermission());
+      if (el.checked && !s.notifications) toast('Mitteilungen wurden nicht erlaubt – bitte in den Android-Einstellungen erlauben.');
+      await saveSettings();
+      if (s.notifications) scheduleNative(); else scheduleAll([]);
     } else if (key === 'notifications' && el.checked) {
       if (!('Notification' in window)) {
         el.checked = false;
@@ -959,6 +1056,7 @@ document.addEventListener('change', async (e) => {
       if (!s.notifications) toast('Mitteilungen wurden nicht erlaubt.');
     } else {
       s[key] = el.checked;
+      if (key === 'weekends') { await saveSettings(); await refreshPending(false); }
     }
     await saveSettings();
     render();
@@ -966,6 +1064,31 @@ document.addEventListener('change', async (e) => {
 });
 
 // ------------------------------------------------------------------ boot --
+
+function setupNative() {
+  document.documentElement.classList.add('native');
+  // Tapping a notification opens the matching order.
+  LocalNotifications.addListener('localNotificationActionPerformed', async (e) => {
+    const id = e.notification?.extra?.orderId;
+    await checkArrivals();
+    render();
+    if (id && state.orders.some((o) => o.id === id)) openSheet({ kind: 'order', id });
+  });
+  // Android back button: close sheet → back to first tab → minimise.
+  App.addListener('backButton', () => {
+    if (state.sheet) closeSheet();
+    else if (state.tab !== 'orders') { state.tab = 'orders'; render(); }
+    else App.minimizeApp();
+  });
+  App.addListener('resume', () => checkArrivals().then(render));
+}
+
+// Android Chrome offers its own install prompt – keep it for our button.
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  state.installPrompt = e;
+  if (state.tab === 'orders') render();
+});
 
 async function boot() {
   requestPersistence();
@@ -980,7 +1103,11 @@ async function boot() {
   if (!(await db.get('welcomed'))) {
     await db.set('welcomed', true);
     await saveOrder(generateOrder(state.settings, { type: 'instrumental' }), { silent: true });
-    await rescheduleNext();
+    // Android app: ask once for notification permission right away.
+    if (isNative && (await requestNotificationPermission())) {
+      state.settings.notifications = true;
+      await saveSettings();
+    }
   }
 
   await checkArrivals();
@@ -993,7 +1120,8 @@ async function boot() {
     history.replaceState(null, '', location.pathname);
   }
 
-  if ('serviceWorker' in navigator) {
+  if (isNative) setupNative();
+  else if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch((e) => console.warn('sw', e));
     navigator.serviceWorker.addEventListener('message', (e) => {
       if (e.data?.type === 'open-order' && e.data.id) openSheet({ kind: 'order', id: e.data.id });

@@ -108,7 +108,8 @@ function deadlineIn(days, from = new Date()) {
   return d.getTime();
 }
 
-export function generateOrder(settings, { type } = {}) {
+// `at` lets us pre-generate an order that "arrives" later (scheduled notification).
+export function generateOrder(settings, { type, at } = {}) {
   const genreNames = settings.genres?.length ? settings.genres : Object.keys(GENRES);
   const genre = pick(genreNames.filter((g) => GENRES[g]).length ? genreNames.filter((g) => GENRES[g]) : Object.keys(GENRES));
   const g = GENRES[genre];
@@ -120,7 +121,7 @@ export function generateOrder(settings, { type } = {}) {
     genre, bpm, key: pick(g.keys), mood: pick(MOODS), i1, i2,
     theme: pick(THEMES), voice: pick(VOICES),
   };
-  const now = Date.now();
+  const now = at ?? Date.now();
   return {
     id: uid(),
     client: pick(CLIENTS),
@@ -133,7 +134,7 @@ export function generateOrder(settings, { type } = {}) {
     brief: fill(pick(BRIEFS[t]), vars),
     budget: Math.round(rand(T.budget[0], T.budget[1]) / 5) * 5,
     createdAt: now,
-    deadline: deadlineIn(randInt(T.days[0], T.days[1])),
+    deadline: deadlineIn(randInt(T.days[0], T.days[1]), new Date(now)),
     status: 'new', // new → in_progress → delivered
     submissions: [],
     deliveredAt: null,

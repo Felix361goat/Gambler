@@ -1,0 +1,63 @@
+name: Beat Orders APK
+
+on:
+  push:
+    paths:
+      - 'beat-orders/**'
+      - '.github/workflows/beat-orders-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: beat-orders
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: beat-orders/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Copy web app into Android project
+        run: npx cap sync android
+
+      - name: Build APK
+        run: cd android && ./gradlew assembleDebug --no-daemon
+
+      - name: Rename APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk beat-orders.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beat-orders-apk
+          path: beat-orders/beat-orders.apk
+
+      # Always-current download link: Releases → "Beat Orders (neueste Version)"
+      - name: Publish as release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: beat-orders-latest
+          name: Beat Orders (neueste Version)
+          prerelease: true
+          make_latest: false
+          body: |
+            Neueste Android-Version von Beat Orders (Build ${{ github.run_number }}, Branch `${{ github.ref_name }}`).
+            Auf dem Handy `beat-orders.apk` herunterladen und öffnen, um zu installieren oder zu aktualisieren.
+          files: beat-orders/beat-orders.apk
+          target_commitish: ${{ github.sha }}

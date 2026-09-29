@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Beat Orders</string>
+    <string name="title_activity_main">Beat Orders</string>
+    <string name="package_name">de.beatorders.app</string>
+    <string name="custom_url_scheme">de.beatorders.app</string>
+</resources>
