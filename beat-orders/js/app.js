@@ -1,0 +1,1024 @@
+import { db, requestPersistence } from './db.js';
+import {
+  ORDER_TYPES, GENRES, DEFAULT_SETTINGS, generateOrder, createOwnProject,
+  clientReply, nextArrival, uid,
+} from './generator.js';
+import { cloud } from './cloud.js';
+
+// ---------------------------------------------------------------- state --
+
+const state = {
+  tab: 'orders',
+  settings: { ...DEFAULT_SETTINGS },
+  orders: [],
+  filter: { type: 'all', genre: 'all', q: '' },
+  sheet: null, // { kind: 'order' | 'own' | ..., id? }
+  playing: null, // { orderId, subId, url }
+  cloudUser: null,
+  nextOrderAt: null,
+};
+
+const $ = (s, el = document) => el.querySelector(s);
+const view = $('#view');
+const audio = $('#audio');
+
+// --------------------------------------------------------------- helpers --
+
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const isActive = (o) => !o.deleted && (o.status === 'new' || o.status === 'in_progress');
+const visible = (o) => !o.deleted && o.status !== 'declined';
+const DAY = 86400000;
+
+function hue(str) {
+  let h = 0;
+  for (const c of String(str)) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return h;
+}
+const gradient = (str) => {
+  const h = hue(str);
+  return `linear-gradient(135deg, hsl(${h} 85% 60%), hsl(${(h + 50) % 360} 80% 50%))`;
+};
+const initials = (name) => name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
+
+function fmtDate(ts, opts = { weekday: 'short', day: 'numeric', month: 'short' }) {
+  return new Date(ts).toLocaleDateString('de-DE', opts);
+}
+function fmtTime(ts) {
+  return new Date(ts).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+}
+function fmtDuration(sec) {
+  if (!sec || !isFinite(sec)) return '';
+  const m = Math.floor(sec / 60), s = Math.round(sec % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+function fmtSize(bytes) {
+  return bytes > 1e6 ? `${(bytes / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1e3))} KB`;
+}
+
+function dueInfo(o) {
+  if (!o.deadline) return { text: 'Ohne Deadline', cls: '' };
+  if (o.status === 'delivered') {
+    const late = o.deliveredAt > o.deadline;
+    return late ? { text: 'Verspätet abgegeben', cls: 'orange' } : { text: 'Pünktlich abgegeben', cls: 'green' };
+  }
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const days = Math.floor((o.deadline - startToday) / DAY);
+  if (o.deadline < now.getTime()) {
+    const over = Math.max(1, Math.ceil((now - o.deadline) / DAY));
+    return { text: over === 1 ? 'Überfällig' : `Seit ${over} Tagen überfällig`, cls: 'red' };
+  }
+  if (days === 0) return { text: 'Heute fällig', cls: 'red' };
+  if (days === 1) return { text: 'Morgen fällig', cls: 'orange' };
+  return { text: `Noch ${days} Tage`, cls: days <= 2 ? 'orange' : 'blue' };
+}
+
+function orderTitle(o) {
+  if (o.type === 'own') return o.title || 'Eigenes Projekt';
+  return `${ORDER_TYPES[o.type]?.label || o.type} für ${o.client}`;
+}
+
+let toastTimer;
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (t.hidden = true), 2600);
+}
+
+const ICON = {
+  plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+  chev: '<svg class="chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
+  play: '<svg viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z"/></svg>',
+  pause: '<svg viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>',
+  close: '<svg class="stroke" viewBox="0 0 24 24" style="stroke:currentColor;fill:none;stroke-width:2.2"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+  share: '<svg class="stroke" viewBox="0 0 24 24"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>',
+};
+
+// ------------------------------------------------------------ persistence --
+
+async function saveOrder(o, { silent } = {}) {
+  o.updatedAt = Date.now();
+  await db.putOrder(o);
+  const i = state.orders.findIndex((x) => x.id === o.id);
+  if (i >= 0) state.orders[i] = o; else state.orders.push(o);
+  updateBadge();
+  if (!silent) syncSoon();
+}
+
+async function saveSettings() {
+  await db.set('settings', state.settings);
+}
+
+let syncTimer;
+function syncSoon() {
+  if (!state.cloudUser) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => runSync(true), 2500);
+}
+
+let syncing = false;
+async function runSync(quiet) {
+  if (syncing) return;
+  syncing = true;
+  try {
+    const r = await cloud.sync();
+    state.orders = await db.allOrders();
+    if (!quiet) toast(`Synchronisiert ☁️ ↓${r.pulled} ↑${r.pushed}${r.uploaded ? ` · ${r.uploaded} Dateien` : ''}`);
+    render();
+    if (state.sheet) renderSheet();
+  } catch (e) {
+    if (!quiet) toast(`Sync fehlgeschlagen: ${e.message}`);
+    console.warn('sync', e);
+  } finally {
+    syncing = false;
+  }
+}
+
+// ----------------------------------------------------- order arrivals --
+
+async function checkArrivals() {
+  const now = Date.now();
+  let next = await db.get('nextOrderAt');
+  if (!next) {
+    next = nextArrival(state.settings, now);
+    await db.set('nextOrderAt', next);
+  }
+  if (now >= next) {
+    const active = state.orders.filter((o) => isActive(o) && o.type !== 'own').length;
+    if (active < state.settings.maxActive) await receiveOrder(generateOrder(state.settings));
+    next = nextArrival(state.settings, now);
+    await db.set('nextOrderAt', next);
+  }
+  state.nextOrderAt = next;
+}
+
+async function receiveOrder(order) {
+  await saveOrder(order);
+  toast(`📥 Neuer Auftrag von ${order.client}`);
+  notify(order);
+  render();
+}
+
+async function notify(order) {
+  if (!state.settings.notifications || !('Notification' in window) || Notification.permission !== 'granted') return;
+  try {
+    const reg = await navigator.serviceWorker?.ready;
+    const title = `${order.client} · ${ORDER_TYPES[order.type].label}`;
+    const opts = {
+      body: order.brief,
+      icon: 'icons/icon-192.png',
+      badge: 'icons/icon-192.png',
+      tag: order.id,
+      data: { orderId: order.id, url: `./?order=${order.id}` },
+    };
+    if (reg) await reg.showNotification(title, opts);
+    else new Notification(title, opts);
+  } catch (e) {
+    console.warn('notify', e);
+  }
+}
+
+function updateBadge() {
+  const n = state.orders.filter((o) => !o.deleted && o.status === 'new').length;
+  const b = $('#tabBadge');
+  b.hidden = n === 0;
+  b.textContent = n;
+  try {
+    if (navigator.setAppBadge) n ? navigator.setAppBadge(n) : navigator.clearAppBadge();
+  } catch {}
+}
+
+// ------------------------------------------------------------ rendering --
+
+function render() {
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === state.tab));
+  if (state.tab === 'orders') view.innerHTML = renderOrders();
+  else if (state.tab === 'library') view.innerHTML = renderLibrary();
+  else view.innerHTML = renderSettings();
+  renderMiniPlayer();
+}
+
+function installHint() {
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  if (standalone || !ios || state.hideInstallHint) return '';
+  return `<div class="hint glass">
+    <div style="font-size:26px">📲</div>
+    <div><b>Als App installieren</b>Tippe unten in Safari auf <b style="display:inline">Teilen</b> → <b style="display:inline">Zum Home-Bildschirm</b>. Dann bekommst du auch Mitteilungen.</div>
+    <button class="x" data-action="hide-hint" aria-label="Schließen">×</button>
+  </div>`;
+}
+
+function orderCard(o) {
+  const T = ORDER_TYPES[o.type];
+  const due = dueInfo(o);
+  const frac = o.deadline ? Math.min(1, Math.max(0, (Date.now() - o.createdAt) / (o.deadline - o.createdAt))) : 0;
+  const status = o.status === 'new'
+    ? '<span class="pill accent">Neu</span>'
+    : o.status === 'in_progress' ? '<span class="pill">In Arbeit</span>' : '';
+  return `<button class="card glass" data-action="open-order" data-id="${o.id}" style="display:block;width:100%;text-align:left">
+    <div class="order-top">
+      <div class="avatar" style="background:${gradient(o.client)}">${o.type === 'own' ? '⭐️' : esc(initials(o.client))}</div>
+      <div class="order-meta">
+        <div class="order-client">${esc(o.type === 'own' ? orderTitle(o) : o.client)}</div>
+        <div class="order-sub">${T.icon} ${esc(T.label)} · ${esc(o.genre)}${o.bpm ? ` · ${o.bpm} BPM` : ''}</div>
+      </div>
+      ${status}
+    </div>
+    ${o.type === 'own' ? '' : `<p class="order-brief">${esc(o.brief)}</p>`}
+    <div class="order-foot">
+      <span class="pill ${due.cls}">${due.text}</span>
+      ${o.submissions.length ? `<span class="pill">🎧 ${o.submissions.length} Version${o.submissions.length > 1 ? 'en' : ''}</span>` : ''}
+      <span class="spacer"></span>
+      ${o.budget ? `<span class="pill green">${o.budget} €</span>` : ''}
+    </div>
+    ${o.deadline && o.status !== 'delivered' ? `<div class="progress"><i style="width:${Math.round(frac * 100)}%"></i></div>` : ''}
+  </button>`;
+}
+
+function renderOrders() {
+  const active = state.orders.filter(isActive).sort((a, b) => (a.deadline || Infinity) - (b.deadline || Infinity));
+  const done = state.orders.filter((o) => visible(o) && o.status === 'delivered').sort((a, b) => b.deliveredAt - a.deliveredAt).slice(0, 5);
+  const weekAgo = Date.now() - 7 * DAY;
+  const doneWeek = state.orders.filter((o) => visible(o) && o.status === 'delivered' && o.deliveredAt > weekAgo).length;
+  const name = state.settings.artistName ? `, ${esc(state.settings.artistName)}` : '';
+
+  const nextHint = state.nextOrderAt
+    ? `Nächster Auftrag voraussichtlich ${fmtDate(state.nextOrderAt, { weekday: 'long' })} 👀`
+    : '';
+
+  return `
+    ${installHint()}
+    <div class="header-row">
+      <h1 class="large-title">Aufträge</h1>
+      <button class="icon-btn glass" data-action="request-order" aria-label="Auftrag anfordern" style="margin-bottom:6px">${ICON.plus}</button>
+    </div>
+    <p class="subtitle">Hi${name} 👋 Diese Woche: ${doneWeek}/${state.settings.ordersPerWeek} erledigt</p>
+
+    ${active.length ? active.map(orderCard).join('') : `
+      <div class="empty glass">
+        <div class="big">🎧</div>
+        <h3>Gerade keine Aufträge</h3>
+        <p>${nextHint || 'Neue Aufträge kommen automatisch rein.'}</p>
+        <button class="btn small" data-action="request-order">Auftrag jetzt anfordern</button>
+      </div>`}
+
+    ${active.length && nextHint ? `<p class="footnote">${nextHint}</p>` : ''}
+
+    ${done.length ? `<div class="section-title">Zuletzt abgegeben <small><button class="btn plain small" data-action="tab" data-tab="library">Alle</button></small></div>
+      ${done.map(orderCard).join('')}` : ''}
+  `;
+}
+
+function allTracks() {
+  const tracks = [];
+  for (const o of state.orders) {
+    if (!visible(o)) continue;
+    for (const s of o.submissions) tracks.push({ o, s });
+  }
+  return tracks.sort((a, b) => b.s.uploadedAt - a.s.uploadedAt);
+}
+
+function renderLibrary() {
+  const { type, genre, q } = state.filter;
+  const tracks = allTracks();
+  const delivered = state.orders.filter((o) => visible(o) && o.status === 'delivered' && o.type !== 'own');
+  const onTime = delivered.filter((o) => o.deliveredAt <= o.deadline).length;
+  const genresUsed = [...new Set(tracks.map((t) => t.o.genre))].sort();
+
+  const ql = q.trim().toLowerCase();
+  const list = tracks.filter(({ o, s }) =>
+    (type === 'all' || o.type === type) &&
+    (genre === 'all' || o.genre === genre) &&
+    (!ql || [o.client, o.genre, o.brief, o.title, s.name, s.note, ORDER_TYPES[o.type]?.label].join(' ').toLowerCase().includes(ql))
+  );
+
+  // group by month
+  const groups = new Map();
+  for (const t of list) {
+    const k = fmtDate(t.s.uploadedAt, { month: 'long', year: 'numeric' });
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(t);
+  }
+
+  const typeChips = [['all', 'Alle'], ...Object.entries(ORDER_TYPES).map(([k, v]) => [k, `${v.icon} ${v.label}`])]
+    .map(([k, l]) => `<button class="chip glass ${type === k ? 'on' : ''}" data-action="filter-type" data-v="${k}">${esc(l)}</button>`).join('');
+  const genreChips = genresUsed.length > 1
+    ? `<div class="chips">${[['all', 'Alle Genres'], ...genresUsed.map((g) => [g, g])]
+        .map(([k, l]) => `<button class="chip glass ${genre === k ? 'on' : ''}" data-action="filter-genre" data-v="${esc(k)}">${esc(l)}</button>`).join('')}</div>`
+    : '';
+
+  return `
+    <div class="header-row">
+      <h1 class="large-title">Bibliothek</h1>
+      <button class="icon-btn glass" data-action="new-own" aria-label="Eigenes Projekt" style="margin-bottom:6px">${ICON.plus}</button>
+    </div>
+    <p class="subtitle">Alles, was du je gemacht hast.</p>
+
+    <div class="stats">
+      <div class="stat glass"><b>${delivered.length}</b><span>Abgegeben</span></div>
+      <div class="stat glass"><b>${delivered.length ? Math.round((onTime / delivered.length) * 100) : 0}%</b><span>Pünktlich</span></div>
+      <div class="stat glass"><b>${tracks.length}</b><span>Uploads</span></div>
+    </div>
+
+    <label class="search">${ICON.search}<input type="search" placeholder="Suchen" value="${esc(q)}" data-input="search" /></label>
+    <div class="chips">${typeChips}</div>
+    ${genreChips}
+
+    ${list.length ? [...groups].map(([month, items]) => `
+      <div class="group-title">${esc(month)}</div>
+      ${items.map(trackRow).join('')}
+    `).join('') : `
+      <div class="empty glass">
+        <div class="big">💿</div>
+        <h3>${tracks.length ? 'Nichts gefunden' : 'Noch keine Uploads'}</h3>
+        <p>${tracks.length ? 'Versuch einen anderen Filter.' : 'Lade deinen ersten Beat bei einem Auftrag hoch – oder starte ein eigenes Projekt.'}</p>
+      </div>`}
+  `;
+}
+
+function trackRow({ o, s }) {
+  const T = ORDER_TYPES[o.type];
+  const playing = state.playing?.subId === s.id;
+  const isAudio = (s.mime || '').startsWith('audio/') || /\.(mp3|wav|m4a|aac|flac|aiff?|ogg)$/i.test(s.name);
+  const final = o.deliveredSubmissionId === s.id;
+  return `<div class="track glass ${playing ? 'playing' : ''}">
+    <button class="art" style="background:${gradient(o.genre)}" data-action="open-order" data-id="${o.id}">${T.icon}</button>
+    <button class="t-main" style="text-align:left" data-action="open-order" data-id="${o.id}">
+      <div class="t-title">${esc(orderTitle(o))}${final ? ' ✅' : ''}</div>
+      <div class="t-sub">${esc(o.genre)} · v${s.version}${s.duration ? ` · ${fmtDuration(s.duration)}` : ''} · ${fmtDate(s.uploadedAt, { day: 'numeric', month: 'short' })}</div>
+    </button>
+    ${isAudio
+      ? `<button class="play-dot" data-action="play" data-order="${o.id}" data-sub="${s.id}" aria-label="Abspielen">${playing && !audio.paused ? ICON.pause : ICON.play}</button>`
+      : `<button class="play-dot" data-action="share-file" data-order="${o.id}" data-sub="${s.id}" aria-label="Teilen">${ICON.share}</button>`}
+  </div>`;
+}
+
+function stepper(key, min, max) {
+  return `<div class="stepper"><button data-action="step" data-key="${key}" data-d="-1" data-min="${min}" data-max="${max}">−</button><button data-action="step" data-key="${key}" data-d="1" data-min="${min}" data-max="${max}">+</button></div>`;
+}
+function toggle(key, on) {
+  return `<label class="switch"><input type="checkbox" data-toggle="${key}" ${on ? 'checked' : ''}/><span></span></label>`;
+}
+
+function renderSettings() {
+  const s = state.settings;
+  const genreRows = Object.keys(GENRES).map((g) => `
+    <div class="row"><span class="label">${esc(g)}</span>${toggle(`genre:${g}`, s.genres.includes(g))}</div>`).join('');
+  const typeRows = Object.entries(ORDER_TYPES).filter(([, T]) => !T.manualOnly).map(([k, T]) => `
+    <div class="row has-icon"><span class="ico" style="background:${gradient(k)}">${T.icon}</span>
+      <span class="label">${esc(T.label)}<br><small style="color:var(--label-2)">${['Aus', 'Selten', 'Manchmal', 'Oft', 'Sehr oft'][s.types[k] ?? 0]}</small></span>
+      ${stepper(`type:${k}`, 0, 4)}</div>`).join('');
+
+  return `
+    <h1 class="large-title">Einstellungen</h1>
+    <p class="subtitle">Passe die Aufträge an deinen Alltag an.</p>
+
+    <div class="group-title">Profil</div>
+    <div class="group glass">
+      <label class="row"><span class="label">Artist-Name</span><input type="text" placeholder="Dein Name" value="${esc(s.artistName)}" data-setting="artistName" /></label>
+    </div>
+
+    <div class="group-title">Rhythmus</div>
+    <div class="group glass">
+      <div class="row"><span class="label">Aufträge pro Woche</span><span class="value">${s.ordersPerWeek}</span>${stepper('ordersPerWeek', 1, 14)}</div>
+      <div class="row"><span class="label">Max. gleichzeitig</span><span class="value">${s.maxActive}</span>${stepper('maxActive', 1, 6)}</div>
+      <div class="row"><span class="label">Abends ab</span><span class="value">${s.eveningStart}:00</span>${stepper('eveningStart', 6, 21)}</div>
+      <div class="row"><span class="label">Bis</span><span class="value">${s.eveningEnd}:00</span>${stepper('eveningEnd', 12, 24)}</div>
+      <div class="row"><span class="label">Auch am Wochenende</span>${toggle('weekends', s.weekends)}</div>
+    </div>
+    <p class="footnote">Aufträge kommen nur in deiner Freizeit rein (werktags abends, optional am Wochenende) – passend zu deinem Vollzeitjob.</p>
+
+    <div class="group-title">Auftragsarten</div>
+    <div class="group glass">${typeRows}</div>
+
+    <div class="group-title">Genres</div>
+    <div class="group glass">${genreRows}</div>
+
+    <div class="group-title">Mitteilungen</div>
+    <div class="group glass">
+      <div class="row"><span class="label">Neue Aufträge melden</span>${toggle('notifications', s.notifications)}</div>
+      <button class="row tap" data-action="test-notification"><span class="label" style="color:var(--accent)">Test-Mitteilung senden</span></button>
+    </div>
+    <p class="footnote">Auf dem iPhone funktionieren Mitteilungen, wenn die App über „Zum Home-Bildschirm“ installiert ist (iOS 16.4+).</p>
+
+    ${renderCloudSettings()}
+
+    <div class="group-title">Daten</div>
+    <div class="group glass">
+      <button class="row tap" data-action="export"><span class="label">Backup exportieren (ohne Audio)</span>${ICON.chev}</button>
+      <button class="row tap" data-action="import"><span class="label">Backup importieren</span>${ICON.chev}</button>
+      <button class="row tap" data-action="reset"><span class="label" style="color:var(--red)">Alles lokal löschen</span></button>
+    </div>
+    <p class="footnote" style="text-align:center;margin-top:24px">Beat Orders · v1.0</p>
+  `;
+}
+
+function renderCloudSettings() {
+  const c = state.cloudConfigured;
+  const u = state.cloudUser;
+  let body;
+  if (!c) {
+    body = `<div class="group glass">
+      <label class="row col"><span class="label">Supabase-URL</span><input type="url" id="cUrl" placeholder="https://xyz.supabase.co" autocapitalize="off" /></label>
+      <label class="row col"><span class="label">Anon Key</span><input type="text" id="cKey" placeholder="eyJhbGciOi…" autocapitalize="off" autocomplete="off" /></label>
+      <button class="row tap" data-action="cloud-save"><span class="label" style="color:var(--accent);font-weight:600">Verbinden</span></button>
+    </div>
+    <p class="footnote">Deine Aufträge und Beats werden zusätzlich online gespeichert und sind auf allen Geräten da. Anleitung: README → „Cloud-Speicher“.</p>`;
+  } else if (!u) {
+    body = `<div class="group glass">
+      <label class="row"><span class="label">E-Mail</span><input type="email" id="cEmail" placeholder="du@mail.de" autocapitalize="off" /></label>
+      <label class="row"><span class="label">Passwort</span><input type="password" id="cPass" placeholder="••••••••" /></label>
+      <button class="row tap" data-action="cloud-login"><span class="label" style="color:var(--accent);font-weight:600">Anmelden / Registrieren</span></button>
+      <button class="row tap" data-action="cloud-reset"><span class="label" style="color:var(--red)">Verbindung entfernen</span></button>
+    </div>`;
+  } else {
+    body = `<div class="group glass">
+      <div class="row"><span class="label">Angemeldet</span><span class="value">${esc(u.email)}</span></div>
+      <div class="row"><span class="label">Letzter Sync</span><span class="value">${state.lastSync ? `${fmtDate(state.lastSync, { day: 'numeric', month: 'short' })}, ${fmtTime(state.lastSync)}` : '–'}</span></div>
+      <button class="row tap" data-action="cloud-sync"><span class="label" style="color:var(--accent);font-weight:600">Jetzt synchronisieren</span></button>
+      <button class="row tap" data-action="cloud-logout"><span class="label" style="color:var(--red)">Abmelden</span></button>
+    </div>`;
+  }
+  return `<div class="group-title">Cloud-Speicher ☁️</div>${body}`;
+}
+
+// ---------------------------------------------------------------- sheets --
+
+function openSheet(sheet) {
+  state.sheet = sheet;
+  $('#sheetLayer').hidden = false;
+  $('#sheet').classList.remove('closing');
+  $('.sheet-dim').classList.remove('closing');
+  renderSheet();
+  $('#sheet').scrollTop = 0;
+}
+
+function closeSheet() {
+  if (!state.sheet) return;
+  state.sheet = null;
+  $('#sheet').classList.add('closing');
+  $('.sheet-dim').classList.add('closing');
+  setTimeout(() => { if (!state.sheet) $('#sheetLayer').hidden = true; }, 240);
+  render();
+}
+
+function renderSheet() {
+  const s = state.sheet;
+  if (!s) return;
+  let html = '';
+  if (s.kind === 'order') html = renderOrderSheet(state.orders.find((o) => o.id === s.id));
+  else if (s.kind === 'own') html = renderOwnSheet();
+  $('#sheet').innerHTML = `<div class="grabber"></div>${html}`;
+}
+
+function renderOrderSheet(o) {
+  if (!o) return '<p>Auftrag nicht gefunden.</p>';
+  const T = ORDER_TYPES[o.type];
+  const due = dueInfo(o);
+  const delivered = o.status === 'delivered';
+  const subs = [...o.submissions].sort((a, b) => b.version - a.version);
+
+  const specs = [
+    ['Art', `${T.icon} ${T.label}`],
+    ['Genre', o.genre],
+    o.bpm && ['Tempo', `${o.bpm} BPM`],
+    o.key && ['Tonart', o.key],
+    o.mood && ['Vibe', o.mood],
+    o.deadline && ['Deadline', `${fmtDate(o.deadline)}`],
+    o.budget && ['Budget', `${o.budget} €`],
+  ].filter(Boolean);
+  // Odd number of tiles → stretch the last one; instruments always get a full row.
+  if (specs.length % 2) specs[specs.length - 1].wide = true;
+  if (o.instruments?.length) specs.push(Object.assign(['Instrumente', o.instruments.join(', ')], { wide: true }));
+
+  return `
+    <div class="sheet-head">
+      <button class="btn plain" data-action="close-sheet">Schließen</button>
+      <h2>${esc(o.type === 'own' ? 'Projekt' : o.client)}</h2>
+      <span style="width:80px;text-align:right"><span class="pill ${due.cls}">${delivered ? '✓' : due.text.replace('Noch ', '')}</span></span>
+    </div>
+
+    ${o.type !== 'own' ? `
+    <div class="thread">
+      <div class="thread-meta">${fmtDate(o.createdAt)}, ${fmtTime(o.createdAt)}</div>
+      <div class="bubble them">${esc(o.brief)}</div>
+      ${o.status !== 'new' ? '<div class="bubble me">Bin dran! 🎛️</div>' : ''}
+      ${delivered ? `<div class="bubble me">Hier ist dein ${esc(T.short)} 🎧</div>
+        <div class="thread-meta">${fmtDate(o.deliveredAt)}, ${fmtTime(o.deliveredAt)}</div>
+        <div class="bubble them">${esc(o.reply)}<br><span class="stars">${'★'.repeat(o.rating || 0)}${'☆'.repeat(5 - (o.rating || 0))}</span></div>` : ''}
+    </div>` : `<h2 style="font-size:28px;margin:12px 4px 4px">${esc(orderTitle(o))}</h2>`}
+
+    <div class="specs">
+      ${specs.map((sp) => `<div class="spec ${sp.wide ? 'wide' : ''}"><span>${sp[0]}</span><b>${esc(sp[1])}</b></div>`).join('')}
+    </div>
+
+    ${o.status === 'new' ? `
+      <button class="btn" data-action="accept" data-id="${o.id}">Auftrag annehmen</button>
+      <button class="btn danger" data-action="decline" data-id="${o.id}" style="margin-top:6px">Ablehnen</button>
+    ` : `
+      <div class="section-title" style="margin-top:14px">Versionen <small>${subs.length}</small></div>
+      ${subs.length ? subs.map((s) => subRow(o, s)).join('') : '<p class="footnote" style="margin:0 4px 10px">Noch nichts hochgeladen. Exportiere aus FL Studio (MP3/WAV) und lade die Datei hier hoch.</p>'}
+      <button class="btn ${subs.length ? 'secondary' : ''}" data-action="upload" data-id="${o.id}">⬆︎ ${o.type === 'vocal_chain' ? 'Preset / Demo hochladen' : 'Datei hochladen'}</button>
+      ${!delivered && subs.length ? `<button class="btn" style="margin-top:10px" data-action="deliver" data-id="${o.id}">${o.type === 'own' ? 'Als fertig markieren' : `v${subs[0].version} abgeben`}</button>` : ''}
+    `}
+
+    <div class="group glass" style="margin-top:22px">
+      <label class="row col"><span class="label" style="font-size:13px;color:var(--label-2)">Notizen (Samples, Plugins, Ideen …)</span>
+        <textarea data-note="${o.id}" placeholder="z. B. Serum Preset „Dark Pluck“, 808 aus Kit X …">${esc(o.notes || '')}</textarea></label>
+    </div>
+    <button class="btn danger" data-action="delete-order" data-id="${o.id}" style="margin-top:8px">${o.type === 'own' ? 'Projekt' : 'Auftrag'} löschen</button>
+  `;
+}
+
+function subRow(o, s) {
+  const playing = state.playing?.subId === s.id;
+  const isAudio = (s.mime || '').startsWith('audio/') || /\.(mp3|wav|m4a|aac|flac|aiff?|ogg)$/i.test(s.name);
+  const final = o.deliveredSubmissionId === s.id;
+  return `<div class="track glass ${playing ? 'playing' : ''}">
+    <div class="art" style="background:${gradient(o.genre + s.version)}">v${s.version}</div>
+    <div class="t-main">
+      <div class="t-title">${esc(s.name)}${final ? ' ✅' : ''}</div>
+      <div class="t-sub">${fmtDate(s.uploadedAt, { day: 'numeric', month: 'short' })} · ${fmtSize(s.size)}${s.duration ? ` · ${fmtDuration(s.duration)}` : ''}${s.remotePath ? ' · ☁️' : ''}</div>
+    </div>
+    <button class="play-dot" data-action="share-file" data-order="${o.id}" data-sub="${s.id}" aria-label="Teilen">${ICON.share}</button>
+    ${isAudio ? `<button class="play-dot" data-action="play" data-order="${o.id}" data-sub="${s.id}" aria-label="Abspielen">${playing && !audio.paused ? ICON.pause : ICON.play}</button>` : ''}
+    <button class="play-dot" data-action="delete-sub" data-order="${o.id}" data-sub="${s.id}" aria-label="Löschen" style="color:var(--red)">${ICON.close}</button>
+  </div>`;
+}
+
+function renderOwnSheet() {
+  const genres = Object.keys(GENRES);
+  return `
+    <div class="sheet-head">
+      <button class="btn plain" data-action="close-sheet">Abbrechen</button>
+      <h2>Eigenes Projekt</h2>
+      <button class="btn plain bold" data-action="create-own">Erstellen</button>
+    </div>
+    <div class="group glass" style="margin-top:14px">
+      <label class="row"><span class="label">Titel</span><input type="text" id="ownTitle" placeholder="z. B. Late Night Freestyle" /></label>
+      <label class="row"><span class="label">Genre</span>
+        <select id="ownGenre" style="text-align:right">${genres.map((g) => `<option>${esc(g)}</option>`).join('')}<option>Sonstiges</option></select></label>
+    </div>
+    <p class="footnote">Für alles, was du einfach so machst. Landet genauso in deiner Bibliothek.</p>
+  `;
+}
+
+// ---------------------------------------------------------------- player --
+
+async function getBlob(o, s) {
+  const f = await db.getFile(s.fileId);
+  if (f) return f.blob;
+  if (s.remotePath) {
+    toast('Lade aus der Cloud …');
+    return cloud.download(s);
+  }
+  return null;
+}
+
+async function play(orderId, subId) {
+  if (state.playing?.subId === subId) {
+    if (audio.paused) audio.play(); else audio.pause();
+    return;
+  }
+  const o = state.orders.find((x) => x.id === orderId);
+  const s = o?.submissions.find((x) => x.id === subId);
+  if (!s) return;
+  let blob;
+  try { blob = await getBlob(o, s); } catch (e) { return toast(`Download fehlgeschlagen: ${e.message}`); }
+  if (!blob) return toast('Datei ist auf diesem Gerät nicht vorhanden.');
+  if (state.playing?.url) URL.revokeObjectURL(state.playing.url);
+  const url = URL.createObjectURL(blob);
+  state.playing = { orderId, subId, url };
+  audio.src = url;
+  try { await audio.play(); } catch (e) { console.warn(e); }
+
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: `${orderTitle(o)} (v${s.version})`,
+      artist: state.settings.artistName || 'Beat Orders',
+      album: `${o.genre} · ${ORDER_TYPES[o.type].label}`,
+      artwork: [{ src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' }],
+    });
+    navigator.mediaSession.setActionHandler('play', () => audio.play());
+    navigator.mediaSession.setActionHandler('pause', () => audio.pause());
+    navigator.mediaSession.setActionHandler('seekto', (d) => { audio.currentTime = d.seekTime; });
+  }
+}
+
+function renderMiniPlayer() {
+  const mp = $('#miniplayer');
+  const p = state.playing;
+  const o = p && state.orders.find((x) => x.id === p.orderId);
+  const s = o?.submissions.find((x) => x.id === p.subId);
+  if (!s) { mp.hidden = true; return; }
+  mp.hidden = false;
+  mp.innerHTML = `
+    <button class="mp-art" style="background:${gradient(o.genre)}" data-action="open-order" data-id="${o.id}">${ORDER_TYPES[o.type].icon}</button>
+    <button class="mp-text" style="text-align:left" data-action="open-order" data-id="${o.id}">
+      <div class="mp-title">${esc(orderTitle(o))}</div>
+      <div class="mp-sub">v${s.version} · ${esc(o.genre)}</div>
+      <div class="mp-bar"><i id="mpProgress"></i></div>
+    </button>
+    <button class="mp-btn" data-action="play" data-order="${o.id}" data-sub="${s.id}" aria-label="Play/Pause">${audio.paused ? ICON.play : ICON.pause}</button>
+    <button class="mp-btn" data-action="stop" aria-label="Schließen" style="color:var(--label-2)">${ICON.close}</button>`;
+  updateProgress();
+}
+
+function updateProgress() {
+  const bar = $('#mpProgress');
+  if (bar && audio.duration) bar.style.width = `${(audio.currentTime / audio.duration) * 100}%`;
+}
+
+audio.addEventListener('timeupdate', updateProgress);
+['play', 'pause', 'ended'].forEach((ev) => audio.addEventListener(ev, () => {
+  render();
+  if (state.sheet) renderSheet();
+}));
+
+// Seek by tapping the progress bar in the mini player.
+document.addEventListener('click', (e) => {
+  const bar = e.target.closest('.mp-bar');
+  if (!bar || !audio.duration) return;
+  e.stopPropagation();
+  const r = bar.getBoundingClientRect();
+  audio.currentTime = ((e.clientX - r.left) / r.width) * audio.duration;
+}, true);
+
+// ------------------------------------------------------------- uploads --
+
+function pickFile(accept) {
+  return new Promise((resolve) => {
+    const input = $('#filePicker');
+    input.value = '';
+    input.accept = accept;
+    input.onchange = () => resolve(input.files[0] || null);
+    input.click();
+  });
+}
+
+function audioDuration(blob) {
+  return new Promise((resolve) => {
+    const a = new Audio();
+    const url = URL.createObjectURL(blob);
+    const done = (v) => { URL.revokeObjectURL(url); resolve(v); };
+    a.preload = 'metadata';
+    a.onloadedmetadata = () => done(a.duration);
+    a.onerror = () => done(null);
+    setTimeout(() => done(null), 5000);
+    a.src = url;
+  });
+}
+
+async function upload(orderId) {
+  const o = state.orders.find((x) => x.id === orderId);
+  if (!o) return;
+  const accept = o.type === 'vocal_chain' ? '' : 'audio/*,.mp3,.wav,.m4a,.aac,.flac,.aif,.aiff,.ogg';
+  const file = await pickFile(accept);
+  if (!file) return;
+  const fileId = uid();
+  await db.putFile(fileId, file);
+  const isAudio = file.type.startsWith('audio/') || /\.(mp3|wav|m4a|aac|flac|aiff?|ogg)$/i.test(file.name);
+  const duration = isAudio ? await audioDuration(file) : null;
+  const version = o.submissions.reduce((m, s) => Math.max(m, s.version), 0) + 1;
+  o.submissions.push({
+    id: uid(), fileId, name: file.name, size: file.size, mime: file.type,
+    duration, version, uploadedAt: Date.now(), remotePath: null,
+  });
+  if (o.status === 'new') o.status = 'in_progress';
+  await saveOrder(o);
+  toast(`v${version} hochgeladen 🎉`);
+  render();
+  renderSheet();
+}
+
+async function shareFile(orderId, subId) {
+  const o = state.orders.find((x) => x.id === orderId);
+  const s = o?.submissions.find((x) => x.id === subId);
+  if (!s) return;
+  let blob;
+  try { blob = await getBlob(o, s); } catch (e) { return toast(e.message); }
+  if (!blob) return toast('Datei ist auf diesem Gerät nicht vorhanden.');
+  const file = new File([blob], s.name, { type: s.mime || blob.type });
+  if (navigator.canShare?.({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: orderTitle(o) }); } catch {}
+  } else {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(file);
+    a.download = s.name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }
+}
+
+// ------------------------------------------------------------- actions --
+
+const actions = {
+  'tab': (el) => { state.tab = el.dataset.tab; render(); window.scrollTo(0, 0); },
+  'hide-hint': async () => { state.hideInstallHint = true; await db.set('hideInstallHint', true); render(); },
+  'open-order': (el) => openSheet({ kind: 'order', id: el.dataset.id }),
+  'close-sheet': () => closeSheet(),
+
+  async 'request-order'() {
+    const active = state.orders.filter((o) => isActive(o) && o.type !== 'own').length;
+    if (active >= state.settings.maxActive &&
+        !confirm(`Du hast schon ${active} aktive Aufträge (Limit ${state.settings.maxActive}). Trotzdem einen neuen?`)) return;
+    const o = generateOrder(state.settings);
+    await receiveOrder(o);
+    openSheet({ kind: 'order', id: o.id });
+  },
+
+  async accept(el) {
+    const o = state.orders.find((x) => x.id === el.dataset.id);
+    o.status = 'in_progress';
+    await saveOrder(o);
+    render(); renderSheet();
+  },
+
+  async decline(el) {
+    if (!confirm('Auftrag ablehnen?')) return;
+    const o = state.orders.find((x) => x.id === el.dataset.id);
+    o.status = 'declined';
+    await saveOrder(o);
+    closeSheet();
+  },
+
+  upload: (el) => upload(el.dataset.id),
+
+  async deliver(el) {
+    const o = state.orders.find((x) => x.id === el.dataset.id);
+    const latest = o.submissions.reduce((a, b) => (b.version > a.version ? b : a));
+    o.status = 'delivered';
+    o.deliveredAt = Date.now();
+    o.deliveredSubmissionId = latest.id;
+    if (o.type !== 'own') Object.assign(o, clientReply(o));
+    await saveOrder(o);
+    toast(o.type === 'own' ? 'Fertig ✅' : 'Abgegeben ✅');
+    render(); renderSheet();
+  },
+
+  async 'delete-order'(el) {
+    if (!confirm('Wirklich löschen? Alle Uploads dazu werden entfernt.')) return;
+    const o = state.orders.find((x) => x.id === el.dataset.id);
+    for (const s of o.submissions) {
+      await db.deleteFile(s.fileId);
+      cloud.removeFile(s).catch(() => {});
+    }
+    if (state.playing?.orderId === o.id) actions.stop();
+    // Tombstone so the deletion also syncs to other devices.
+    o.deleted = true;
+    o.submissions = [];
+    await saveOrder(o);
+    closeSheet();
+  },
+
+  async 'delete-sub'(el) {
+    if (!confirm('Diese Version löschen?')) return;
+    const o = state.orders.find((x) => x.id === el.dataset.order);
+    const s = o.submissions.find((x) => x.id === el.dataset.sub);
+    await db.deleteFile(s.fileId);
+    cloud.removeFile(s).catch(() => {});
+    if (state.playing?.subId === s.id) actions.stop();
+    o.submissions = o.submissions.filter((x) => x.id !== s.id);
+    if (o.deliveredSubmissionId === s.id) o.deliveredSubmissionId = null;
+    await saveOrder(o);
+    render(); renderSheet();
+  },
+
+  play: (el) => play(el.dataset.order, el.dataset.sub),
+  'share-file': (el) => shareFile(el.dataset.order, el.dataset.sub),
+  stop() {
+    audio.pause();
+    if (state.playing?.url) URL.revokeObjectURL(state.playing.url);
+    state.playing = null;
+    audio.removeAttribute('src');
+    render();
+  },
+
+  'filter-type': (el) => { state.filter.type = el.dataset.v; render(); },
+  'filter-genre': (el) => { state.filter.genre = el.dataset.v; render(); },
+
+  'new-own': () => openSheet({ kind: 'own' }),
+  async 'create-own'() {
+    const o = createOwnProject({ title: $('#ownTitle').value.trim(), genre: $('#ownGenre').value });
+    await saveOrder(o);
+    openSheet({ kind: 'order', id: o.id });
+    render();
+  },
+
+  async step(el) {
+    const [key, sub] = el.dataset.key.split(':');
+    const d = Number(el.dataset.d), min = Number(el.dataset.min), max = Number(el.dataset.max);
+    const s = state.settings;
+    if (key === 'type') s.types[sub] = Math.min(max, Math.max(min, (s.types[sub] ?? 0) + d));
+    else s[key] = Math.min(max, Math.max(min, s[key] + d));
+    if (s.eveningEnd <= s.eveningStart) s.eveningEnd = s.eveningStart + 1;
+    await saveSettings();
+    if (key === 'ordersPerWeek') await rescheduleNext();
+    render();
+  },
+
+  async 'test-notification'() {
+    if (!('Notification' in window)) return toast('Mitteilungen gehen erst nach „Zum Home-Bildschirm“.');
+    if (Notification.permission !== 'granted') await Notification.requestPermission();
+    if (Notification.permission !== 'granted') return toast('Mitteilungen sind nicht erlaubt.');
+    const reg = await navigator.serviceWorker?.ready;
+    const opts = { body: 'So sehen neue Aufträge aus 🎧', icon: 'icons/icon-192.png' };
+    reg ? reg.showNotification('Beat Orders', opts) : new Notification('Beat Orders', opts);
+  },
+
+  async export() {
+    const data = JSON.stringify({ app: 'beat-orders', version: 1, exportedAt: Date.now(), settings: state.settings, orders: state.orders }, null, 2);
+    const file = new File([data], `beat-orders-backup-${new Date().toISOString().slice(0, 10)}.json`, { type: 'application/json' });
+    if (navigator.canShare?.({ files: [file] })) {
+      try { await navigator.share({ files: [file] }); } catch {}
+    } else {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(file);
+      a.download = file.name;
+      a.click();
+    }
+  },
+
+  async import() {
+    const file = await pickFile('application/json,.json');
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      if (data.app !== 'beat-orders') throw new Error('Keine Beat-Orders-Datei');
+      for (const o of data.orders || []) {
+        const cur = state.orders.find((x) => x.id === o.id);
+        if (!cur || (o.updatedAt || 0) > (cur.updatedAt || 0)) await db.putOrder(o);
+      }
+      if (data.settings) { state.settings = { ...DEFAULT_SETTINGS, ...data.settings }; await saveSettings(); }
+      state.orders = await db.allOrders();
+      toast('Backup importiert ✅');
+      render();
+      syncSoon();
+    } catch (e) {
+      toast(`Import fehlgeschlagen: ${e.message}`);
+    }
+  },
+
+  async reset() {
+    if (!confirm('Alle lokalen Daten (Aufträge, Uploads, Einstellungen) löschen? Cloud-Daten bleiben erhalten.')) return;
+    actions.stop();
+    await db.clearAll();
+    location.reload();
+  },
+
+  async 'cloud-save'() {
+    const url = $('#cUrl').value, key = $('#cKey').value;
+    if (!/^https:\/\//.test(url.trim()) || key.trim().length < 20) return toast('Bitte URL und Anon Key eintragen.');
+    await cloud.saveConfig(url, key);
+    state.cloudConfigured = true;
+    render();
+  },
+  async 'cloud-reset'() {
+    await db.set('cloud', null);
+    state.cloudConfigured = false;
+    render();
+  },
+  async 'cloud-login'() {
+    const email = $('#cEmail').value.trim(), pass = $('#cPass').value;
+    if (!email || pass.length < 6) return toast('E-Mail und Passwort (min. 6 Zeichen) eingeben.');
+    try {
+      state.cloudUser = await cloud.signIn(email, pass);
+      toast('Angemeldet ☁️');
+      render();
+      await runSync(false);
+      state.lastSync = await db.get('lastSync');
+      render();
+    } catch (e) {
+      toast(e.message);
+    }
+  },
+  async 'cloud-sync'() {
+    await runSync(false);
+    state.lastSync = await db.get('lastSync');
+    render();
+  },
+  async 'cloud-logout'() {
+    await cloud.signOut();
+    state.cloudUser = null;
+    render();
+  },
+};
+
+async function rescheduleNext() {
+  const next = nextArrival(state.settings);
+  await db.set('nextOrderAt', next);
+  state.nextOrderAt = next;
+}
+
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-action]');
+  if (!el) return;
+  const fn = actions[el.dataset.action];
+  if (fn) { e.preventDefault(); fn(el); }
+});
+
+document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => actions.tab(t)));
+
+document.addEventListener('input', (e) => {
+  const el = e.target;
+  if (el.dataset.input === 'search') {
+    state.filter.q = el.value;
+    const pos = el.selectionStart;
+    render();
+    const again = $('[data-input="search"]');
+    again.focus();
+    again.setSelectionRange(pos, pos);
+  }
+});
+
+document.addEventListener('change', async (e) => {
+  const el = e.target;
+  if (el.dataset.setting) {
+    state.settings[el.dataset.setting] = el.value.trim();
+    await saveSettings();
+  } else if (el.dataset.note) {
+    const o = state.orders.find((x) => x.id === el.dataset.note);
+    o.notes = el.value;
+    await saveOrder(o);
+  } else if (el.dataset.toggle) {
+    const [key, sub] = el.dataset.toggle.split(':');
+    const s = state.settings;
+    if (key === 'genre') {
+      s.genres = el.checked ? [...new Set([...s.genres, sub])] : s.genres.filter((g) => g !== sub);
+    } else if (key === 'notifications' && el.checked) {
+      if (!('Notification' in window)) {
+        el.checked = false;
+        return toast('Erst über „Teilen → Zum Home-Bildschirm“ installieren.');
+      }
+      const perm = await Notification.requestPermission();
+      s.notifications = perm === 'granted';
+      if (!s.notifications) toast('Mitteilungen wurden nicht erlaubt.');
+    } else {
+      s[key] = el.checked;
+    }
+    await saveSettings();
+    render();
+  }
+});
+
+// ------------------------------------------------------------------ boot --
+
+async function boot() {
+  requestPersistence();
+  state.settings = { ...DEFAULT_SETTINGS, ...((await db.get('settings')) || {}) };
+  state.settings.types = { ...DEFAULT_SETTINGS.types, ...state.settings.types };
+  state.orders = await db.allOrders();
+  state.hideInstallHint = await db.get('hideInstallHint');
+  state.lastSync = await db.get('lastSync');
+  state.cloudConfigured = await cloud.configured();
+
+  // First launch: welcome order so the app isn't empty.
+  if (!(await db.get('welcomed'))) {
+    await db.set('welcomed', true);
+    await saveOrder(generateOrder(state.settings, { type: 'instrumental' }), { silent: true });
+    await rescheduleNext();
+  }
+
+  await checkArrivals();
+  updateBadge();
+  render();
+
+  const params = new URLSearchParams(location.search);
+  if (params.get('order')) {
+    openSheet({ kind: 'order', id: params.get('order') });
+    history.replaceState(null, '', location.pathname);
+  }
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch((e) => console.warn('sw', e));
+    navigator.serviceWorker.addEventListener('message', (e) => {
+      if (e.data?.type === 'open-order' && e.data.id) openSheet({ kind: 'order', id: e.data.id });
+    });
+  }
+
+  // Re-check for new orders every minute and whenever the app comes back.
+  // Skip re-rendering while the user is typing so inputs don't lose focus.
+  const typing = () => /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '');
+  setInterval(() => checkArrivals().then(() => { if (!typing()) render(); }), 60_000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      checkArrivals().then(() => { if (!typing()) render(); });
+      syncSoon();
+    }
+  });
+
+  if (state.cloudConfigured) {
+    try {
+      state.cloudUser = await cloud.user();
+      if (state.cloudUser) runSync(true);
+    } catch (e) {
+      console.warn('cloud', e);
+    }
+  }
+}
+
+boot();
