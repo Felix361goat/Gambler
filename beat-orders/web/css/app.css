@@ -573,6 +573,9 @@ button.mini-avatar, button.k-item { padding: 0; border: 0; cursor: pointer; }
 .card.tier-event { border: 1px solid rgba(192,132,252,.8); background: linear-gradient(160deg, rgba(168,85,247,.3), rgba(236,72,153,.15) 55%, rgba(0,0,0,0)), var(--glass); }
 .tier-event .tier-badge { color: #e879f9; }
 .tier-banner.tier-event { background: linear-gradient(90deg, #7c3aed, #ec4899, #f59e0b); color: #fff; }
+.card.tier-inbox { border: 1px solid rgba(45,212,191,.75); background: linear-gradient(160deg, rgba(20,184,166,.28), rgba(59,130,246,.14) 55%, rgba(0,0,0,0)), var(--glass); }
+.tier-inbox .tier-badge { color: #2dd4bf; }
+.tier-banner.tier-inbox { background: linear-gradient(90deg, #0d9488, #2563eb); color: #fff; }
 
 /* Toast */
 .toast {

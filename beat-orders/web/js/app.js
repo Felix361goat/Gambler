@@ -4,8 +4,9 @@ import {
   clientReply, nextArrival, uid, createVideoOrder, createVocalOrder, rerollConcept, reviewOpensAt,
   SKILLS, levelInfo, DEFAULT_GENRE_WEIGHTS, GENRE_LABELS, TASTE_VERSION, analyze, pickChallenge, windowOn, freeMinutesPerWeek,
   createExpertOrder, createBossOrder, verdictReply, isFan, EXPERT_MIN, vocalBrief, songPrompt,
-  createEventOrder, GENRE_RENAMES,
+  createEventOrder, GENRE_RENAMES, deadlineFor, refsFor,
 } from './generator.js';
+import { fetchInbox } from './inbox.js';
 import { titleFor, tipOfDay, questsForWeek } from './motivation.js';
 import { FAMILIES } from './genres.js';
 import { PLATFORMS, careerTitle, fmtNum } from './careers.js';
@@ -147,7 +148,8 @@ function bossInfo() {
 const TIER = {
   expert: { badge: '🎖️ EXPERTE', label: 'Experte' },
   boss: { badge: '💀 ULTRA-BOSS', label: 'Ultra-Boss' },
-  event: { badge: '✨ SPECIAL EVENT', label: 'Special Event' },
+  event: { badge: '✨ SPECIAL EVENT', label: 'Special Event', extra: ' · +150 🪙', banner: ' · selten & einzigartig · +150 🪙' },
+  inbox: { badge: '📬 DEINE IDEE', label: 'Deine Idee', extra: ' · per Postfach', banner: ' · deine eigene Idee – per Postfach geschickt' },
 };
 
 // ---- week stats & quests ---------------------------------------------------
@@ -420,6 +422,54 @@ async function receiveOrder(order) {
   render();
 }
 
+// ---- 📬 task inbox (ideas sent via Claude, no app update needed) -----------
+function createInboxOrder({ id, task: t }) {
+  const now = Date.now();
+  const genre = t.genre || 'Sonstiges';
+  const effort = Number(t.effort) || 3;
+  let deadline = deadlineFor(effort, now, state.settings.week);
+  if (t.days) { const d = new Date(now); d.setDate(d.getDate() + Number(t.days)); d.setHours(23, 59, 0, 0); deadline = d.getTime(); }
+  return {
+    id: `inbox-${id}`, tier: 'inbox', client: 'Du', type: 'own', title: `💡 ${t.title}`, genre,
+    brief: t.brief, bpm: t.bpm || null, key: t.key || null, mood: 'deine Idee', instruments: [],
+    refs: GENRES[genre] ? refsFor(genre) : [], idea: null,
+    challenge: pickChallenge('own', { history: genOpts().history }), effort, budget: 0,
+    createdAt: now, deadline, status: 'new', submissions: [], deliveredAt: null, deliveredSubmissionId: null,
+    reply: null, rating: null, updatedAt: now,
+  };
+}
+
+async function checkInbox(force = false) {
+  if (!force && Date.now() - (state.inboxCheckedAt || 0) < 5 * 60e3) return;
+  state.inboxCheckedAt = Date.now();
+  let list;
+  try { list = await fetchInbox(state.settings.taskCode); } catch (e) {
+    if (force) toast(`📬 ${e.message}`);
+    return;
+  }
+  const known = new Set(state.orders.map((o) => o.id));
+  const fresh = list.filter((x) => x.id && !known.has(`inbox-${x.id}`));
+  const lockedBefore = state.inboxLocked;
+  state.inboxLocked = fresh.filter((x) => !x.task).length;
+  const added = [];
+  for (const x of fresh.filter((y) => y.task?.title)) {
+    const o = createInboxOrder(x);
+    await saveOrder(o);
+    added.push(o);
+  }
+  if (added.length) {
+    toast(`📬 ${added.length === 1 ? `Neuer Task: ${added[0].title}` : `${added.length} neue Tasks im Postfach`}`);
+    for (const o of added) {
+      if (isNative && state.settings.notifications) {
+        LocalNotifications.schedule({ notifications: [{ id: notifId(o.id), title: `📬 ${o.title}`, body: o.brief, largeBody: o.brief, smallIcon: 'ic_stat_orders', schedule: { at: new Date(Date.now() + 1500), allowWhileIdle: true }, extra: { orderId: o.id } }] }).catch(() => {});
+      } else if (!isNative) notify(o);
+    }
+  } else if (force) {
+    toast(state.inboxLocked ? `📬 ${state.inboxLocked} Task(s) – Task-Code stimmt nicht` : '📬 Keine neuen Tasks');
+  }
+  if (added.length || force || state.inboxLocked !== lockedBefore) { render(); if (state.sheet) renderSheet(); }
+}
+
 const slotStart = (ts) => {
   const w = windowOn(ts, state.settings.week);
   if (w) return w[0];
@@ -548,7 +598,7 @@ function orderCard(o) {
     : reviewWaiting(o) ? '<span class="pill">🔒 Morgen</span>'
     : o.review?.rating ? `<span class="pill ${o.review.rating >= thr ? 'green' : ''}">${o.review.rating}/10${o.review.rating >= thr ? ` ${UNLOCK[unlockFor(o)].icon}` : ''}</span>` : '';
   return `<button class="card glass ${o.tier ? `tier-${o.tier}` : ''}" data-action="open-order" data-id="${o.id}" style="display:block;width:100%;text-align:left">
-    ${o.tier ? `<div class="tier-badge">${TIER[o.tier].badge}${o.minRating ? ` · mind. ${o.minRating}/10` : ' · +150 🪙'}</div>` : ''}
+    ${o.tier ? `<div class="tier-badge">${TIER[o.tier].badge}${o.minRating ? ` · mind. ${o.minRating}/10` : TIER[o.tier].extra || ''}</div>` : ''}
     <div class="order-top">
       <div class="avatar ${o.tier ? `ring-${o.tier}` : ''}" style="background:${gradient(o.type === 'video' ? o.title : o.client)}">${selfMade(o) ? T.icon : customerOf(o) ? avatarSvg(customerOf(o)) : esc(initials(o.client))}</div>
       <div class="order-meta">
@@ -594,6 +644,7 @@ function renderOrders() {
     ${progressCard()}
     ${recapCard()}
     ${careerDue() && state.orders.some((o) => o.status === 'delivered') ? '<button class="hint glass" data-action="tab" data-tab="career" style="width:100%;text-align:left"><div style="font-size:24px">📈</div><div><b>Karriere-Update fällig</b>Trag deine Spotify-, TikTok- und Insta-Zahlen ein.</div></button>' : ''}
+    ${state.inboxLocked ? `<button class="hint glass" data-action="tab" data-tab="settings" style="width:100%;text-align:left"><div style="font-size:24px">📬</div><div><b>${state.inboxLocked} ${state.inboxLocked === 1 ? 'neuer Task wartet' : 'neue Tasks warten'}</b>Trag deinen Task-Code in den Einstellungen ein, dann kann die App sie lesen.</div></button>` : ''}
     ${backupDue() ? '<button class="hint glass" data-action="export" style="width:100%;text-align:left"><div style="font-size:24px">💾</div><div><b>Backup fällig</b>Sichere deine Beats, Coins & Karriere (1× im Monat) – tippen und in Google Drive speichern.</div></button>' : ''}
     ${hasVip() ? `<div class="vip-hype glass"><span class="mini-avatar big">${vipAvatar()}</span><div class="bubble them">${esc(VIP_LINES[new Date().getDate() % VIP_LINES.length])}</div></div>` : ''}
 
@@ -1200,6 +1251,13 @@ function renderSettings() {
     <div class="group-title">Genres</div>
     <div class="group glass">${genreRows}</div>
 
+    <div class="group-title">📬 Task-Postfach</div>
+    <div class="group glass">
+      <label class="row"><span class="label">Task-Code</span><input type="text" placeholder="dein geheimer Code" value="${esc(s.taskCode || '')}" data-setting="taskCode" autocapitalize="off" autocomplete="off" /></label>
+      <button class="row tap" data-action="check-inbox"><span class="label" style="color:var(--accent)">Jetzt nach neuen Tasks schauen</span></button>
+    </div>
+    <p class="footnote">Sag Claude im Chat einfach, was du machen willst (und deinen Task-Code) – der Task landet hier in der App, ohne Update. Die App schaut beim Öffnen und alle paar Minuten nach. Groß-/Kleinschreibung und Leerzeichen im Code sind egal.</p>
+
     <div class="group-title">Mitteilungen</div>
     <div class="group glass">
       <div class="row"><span class="label">Neue Aufträge melden</span>${toggle('notifications', s.notifications)}</div>
@@ -1359,7 +1417,7 @@ function renderOrderSheet(o) {
   if (o.refs?.length) specs.push(Object.assign(['🎧 Referenz (reinhören!)', o.refs.join(', ')], { wide: true }));
 
   return `
-    ${o.tier ? `<div class="tier-banner tier-${o.tier}">${TIER[o.tier].badge}${o.minRating ? ` · akzeptiert nur ab ${o.minRating}/10 · längere Deadline` : ' · selten & einzigartig · +150 🪙'}</div>` : ''}
+    ${o.tier ? `<div class="tier-banner tier-${o.tier}">${TIER[o.tier].badge}${o.minRating ? ` · akzeptiert nur ab ${o.minRating}/10 · längere Deadline` : TIER[o.tier].banner || ''}</div>` : ''}
     <div class="sheet-head">
       <button class="btn plain" data-action="close-sheet">Schließen</button>
       <h2 class="sheet-title">${customerOf(o) ? `<button class="mini-avatar ${o.tier ? `ring-${o.tier}` : ''}" data-action="open-customer" data-id="${esc(o.customerId)}" aria-label="Kunden-Profil">${avatarSvg(customerOf(o))}</button>` : ''}${esc(o.type === 'own' ? 'Projekt' : o.type === 'video' ? 'Video' : o.type === 'vocals' ? 'Vocals' : o.client.split(' – ')[0])}</h2>
@@ -1380,7 +1438,7 @@ function renderOrderSheet(o) {
         <div class="thread-meta">${fmtDate(o.deliveredAt)}, ${fmtTime(o.deliveredAt)}</div>
         <div class="bubble them">${esc(o.reply)}<br><span class="stars">${'★'.repeat(o.rating || 0)}${'☆'.repeat(5 - (o.rating || 0))}</span></div>` : ''}
     </div>` : `<h2 style="font-size:28px;margin:12px 4px 4px">${esc(orderTitle(o))}</h2>
-      ${o.type === 'video' || o.type === 'vocals' || o.tier === 'event' ? `<div class="thread"><div class="bubble them">${o.tier ? '' : `${T.icon} `}${esc(o.brief)}</div></div>` : ''}`}
+      ${o.type === 'video' || o.type === 'vocals' || o.tier ? `<div class="thread"><div class="bubble them">${o.tier ? '' : `${T.icon} `}${esc(o.brief)}</div></div>` : ''}`}
 
     ${o.challenge ? `<div class="challenge glass">
       <div class="challenge-ico">${MODE[o.challenge.mode]?.icon || '🎯'}</div>
@@ -1404,18 +1462,18 @@ function renderOrderSheet(o) {
       ${o.prompt ? `<button class="btn secondary" data-action="reroll-theme" data-id="${o.id}" style="margin-top:10px">✍️ Anderes Thema</button>` : ''}
     ` : o.status === 'new' ? `
       <button class="btn" data-action="accept" data-id="${o.id}">Auftrag annehmen</button>
-      <button class="btn secondary" data-action="decline" data-id="${o.id}" style="margin-top:10px">👎 Gefällt mir nicht – anderen Auftrag</button>
+      ${o.tier === 'inbox' ? '' : `<button class="btn secondary" data-action="decline" data-id="${o.id}" style="margin-top:10px">👎 Gefällt mir nicht – anderen Auftrag</button>`}
     ` : `
       <div class="section-title" style="margin-top:14px">Versionen <small>${subs.length}</small></div>
       ${subs.length ? subs.map((s) => subRow(o, s)).join('') : `<p class="footnote" style="margin:0 4px 10px">${o.type === 'video'
         ? 'Noch nichts hochgeladen. Schneide das Video (z. B. CapCut) und lade es hier hoch.'
         : o.type === 'vocals' ? 'Nimm deine Vocals in FL Studio auf, misch sie und exportiere den ganzen Song (MP3/WAV).'
         : 'Noch nichts hochgeladen. Exportiere aus FL Studio (MP3/WAV) und lade die Datei hier hoch.'}</p>`}
-      <button class="btn ${subs.length ? 'secondary' : ''}" data-action="upload" data-id="${o.id}">⬆︎ ${o.type === 'vocal_chain' ? 'Preset / Demo hochladen' : o.type === 'video' ? 'Video hochladen' : o.tier === 'event' ? 'Audio / Video hochladen' : o.type === 'vocals' ? 'Song mit Vocals hochladen' : o.type === 'release' ? 'Release-Song hochladen (gemischt & gemastert)' : 'Datei hochladen'}</button>
+      <button class="btn ${subs.length ? 'secondary' : ''}" data-action="upload" data-id="${o.id}">⬆︎ ${o.type === 'vocal_chain' ? 'Preset / Demo hochladen' : o.type === 'video' ? 'Video hochladen' : o.type === 'own' && o.tier ? 'Audio / Video hochladen' : o.type === 'vocals' ? 'Song mit Vocals hochladen' : o.type === 'release' ? 'Release-Song hochladen (gemischt & gemastert)' : 'Datei hochladen'}</button>
       ${!delivered ? (state.activeSession?.orderId === o.id
         ? `<button class="btn secondary" style="margin-top:10px" data-action="stop-session">⏹ Session beenden (${fmtClock(Date.now() - state.activeSession.start)})</button>`
         : state.activeSession ? '' : `<button class="btn secondary" style="margin-top:10px" data-action="start-session" data-id="${o.id}">⏱ Session für diesen Auftrag starten</button>`) : ''}
-      ${!delivered && subs.length ? `<button class="btn" style="margin-top:10px" data-action="deliver" data-id="${o.id}">${selfMade(o) ? 'Als fertig markieren' : `v${subs[0].version} abgeben`}</button>` : ''}
+      ${!delivered && (subs.length || o.tier === 'inbox') ? `<button class="btn" style="margin-top:10px" data-action="deliver" data-id="${o.id}">${selfMade(o) ? 'Als erledigt markieren ✓' : `v${subs[0].version} abgeben`}</button>` : ''}
     `}
 
     ${['vocals', 'full_song', 'hook', 'release'].includes(o.type) ? `
@@ -1848,18 +1906,18 @@ const actions = {
 
   async deliver(el) {
     const o = state.orders.find((x) => x.id === el.dataset.id);
-    const latest = o.submissions.reduce((a, b) => (b.version > a.version ? b : a));
+    const latest = o.submissions.length ? o.submissions.reduce((a, b) => (b.version > a.version ? b : a)) : null;
     if (o.challenge && o.challenge.done == null) {
       o.challenge.done = confirm(`🎯 Hast du die Lern-Challenge umgesetzt?\n\n„${o.challenge.name}“\n\nOK = Ja · Abbrechen = Nein`);
     }
     const before = progress();
     o.status = 'delivered';
     o.deliveredAt = Date.now();
-    o.deliveredSubmissionId = latest.id;
+    o.deliveredSubmissionId = latest?.id || null;
     if (o.minRating) o.reply = null; // experts/boss judge after your review
     else if (!selfMade(o)) Object.assign(o, clientReply(o));
     // Everything with music gets the next-day self-review (not presets, not videos).
-    if (o.type !== 'vocal_chain' && o.type !== 'video' && isAudioFile(latest)) {
+    if (latest && o.type !== 'vocal_chain' && o.type !== 'video' && isAudioFile(latest)) {
       o.review = { opensAt: reviewOpensAt(o.deliveredAt), listenedSec: 0, duration: latest.duration || null, rating: null };
     }
     await saveOrder(o);
@@ -1991,6 +2049,7 @@ const actions = {
     openSheet({ kind: 'order', id: o.id });
   },
   'career-update': (el) => careerUpdate(el.dataset.id),
+  'check-inbox': () => checkInbox(true),
   'open-customer': (el) => openSheet({ kind: 'customer', id: el.dataset.id }),
   async 'lyrics-template'(el) {
     const o = state.orders.find((x) => x.id === el.dataset.id);
@@ -2261,6 +2320,7 @@ document.addEventListener('change', async (e) => {
   } else if (el.dataset.setting) {
     state.settings[el.dataset.setting] = el.value.trim();
     await saveSettings();
+    if (el.dataset.setting === 'taskCode') checkInbox(true);
   } else if (el.dataset.lyrics || el.dataset.lesson || el.dataset.note) {
     const o = flushText(el);
     if (o) await saveOrder(o);
@@ -2307,7 +2367,7 @@ function setupNative() {
     else if (state.tab !== 'orders') { state.tab = 'orders'; render(); }
     else App.minimizeApp();
   });
-  App.addListener('resume', () => checkArrivals().then(render));
+  App.addListener('resume', () => { checkArrivals().then(render); checkInbox(); });
 }
 
 // Android Chrome offers its own install prompt – keep it for our button.
@@ -2385,6 +2445,7 @@ async function boot() {
   updateBadge();
   render();
   renderSessionBar();
+  checkInbox();
   claimQuests();
 
   const params = new URLSearchParams(location.search);
@@ -2404,10 +2465,11 @@ async function boot() {
   // Re-check for new orders every minute and whenever the app comes back.
   // Skip re-rendering while the user is typing so inputs don't lose focus.
   const typing = () => /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '');
-  setInterval(() => checkArrivals().then(() => { if (!typing()) render(); }), 60_000);
+  setInterval(() => checkArrivals().then(() => { if (!typing()) render(); checkInbox(); }), 60_000);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
       checkArrivals().then(() => { if (!typing()) render(); });
+      checkInbox();
       syncSoon();
     }
   });
