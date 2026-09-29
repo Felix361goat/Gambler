@@ -3,14 +3,14 @@
 // (own genres, instruments, clients, brief templates …).
 
 export const ORDER_TYPES = {
-  instrumental: { label: 'Instrumental', short: 'Beat', icon: '🎹', days: [4, 7], budget: [40, 150] },
-  full_song:    { label: 'Full Song',    short: 'Song', icon: '🎤', days: [7, 12], budget: [120, 400] },
-  vocal_chain:  { label: 'Vocal Chain',  short: 'Chain', icon: '🎚️', days: [2, 4], budget: [25, 80] },
-  hook:         { label: 'Hook / Feature', short: 'Hook', icon: '🪝', days: [3, 6], budget: [60, 200] },
-  remix:        { label: 'Remix / Flip', short: 'Remix', icon: '🔁', days: [4, 8], budget: [50, 180] },
-  own:          { label: 'Eigenes Projekt', short: 'Eigenes', icon: '⭐️', days: [0, 0], budget: [0, 0], manualOnly: true },
+  instrumental: { label: 'Instrumental', short: 'Beat', icon: '🎹', days: [4, 7], effort: 4, budget: [40, 150] },
+  full_song:    { label: 'Full Song',    short: 'Song', icon: '🎤', days: [7, 12], effort: 7, budget: [120, 400] },
+  vocal_chain:  { label: 'Vocal Chain',  short: 'Chain', icon: '🎚️', days: [2, 4], effort: 2.5, budget: [25, 80] },
+  hook:         { label: 'Hook / Feature', short: 'Hook', icon: '🪝', days: [3, 6], effort: 3, budget: [60, 200] },
+  remix:        { label: 'Remix / Flip', short: 'Remix', icon: '🔁', days: [4, 8], effort: 4, budget: [50, 180] },
+  own:          { label: 'Eigenes Projekt', short: 'Eigenes', icon: '⭐️', days: [0, 0], effort: 0, budget: [0, 0], manualOnly: true },
   // Only unlocked by your own rating (see createVideoOrder) – never random.
-  video:        { label: 'Video / TikTok', short: 'Video', icon: '🎬', days: [5, 8], budget: [0, 0], manualOnly: true },
+  video:        { label: 'Video / TikTok', short: 'Video', icon: '🎬', days: [5, 8], effort: 3, budget: [0, 0], manualOnly: true },
 };
 
 export const GENRES = {
@@ -123,6 +123,27 @@ export const SKILLS = {
     ['Storytelling-Verse mit Anfang, Mitte, Ende', 2], ['Multisilbige Reime in jeder Zeile', 2],
     ['Flow-Wechsel zwischen den Parts', 3],
   ],
+  // Ganz andere Skillsets – kommen als „Neuland“ dazu.
+  'Mastering': [
+    ['Master-Kette: EQ → Kompressor → Limiter (Stock-Plugins)', 1], ['Auf −14 LUFS für Streaming mastern', 1],
+    ['Multiband-Kompression (Maximus)', 2], ['Stereo-Imaging nur ab den Mitten', 2],
+    ['Zwei Master-Versionen A/B-vergleichen und begründen', 3],
+  ],
+  'Einspielen': [
+    ['Melodie live per MIDI-Keyboard einspielen (kein Mausklick)', 1], ['Drums live einspielen statt klicken', 1],
+    ['Velocity & Timing bewusst menschlich lassen', 2], ['Echtes Instrument/Stimme als Hauptelement aufnehmen', 2],
+    ['Kompletten Part in einem Take einspielen', 3],
+  ],
+  'Cover-Art': [
+    ['Cover in Canva/Photoshop gestalten (3000×3000 px)', 1], ['Eigenes Foto als Cover bearbeiten', 1],
+    ['Farbpalette passend zum Song festlegen', 2], ['Typografie-Cover nur mit Schrift', 2],
+    ['Animiertes Cover (Spotify Canvas, 8 Sek. Loop)', 3],
+  ],
+  'Release & Social': [
+    ['Caption + 5 passende Hashtags schreiben', 1], ['Posting-Zeitpunkt planen und begründen', 1],
+    ['3 Teaser-Clips aus einem Song schneiden', 2], ['Mini-Release-Plan: 2 Wochen Countdown', 2],
+    ['Behind-the-Scenes-Story mit 5 Slides', 3],
+  ],
   'Video': [
     ['Schnitt exakt auf den Beat (Beat-Marker in CapCut)', 1], ['Die ersten 2 Sekunden als Scroll-Stopper', 1],
     ['Animierte Untertitel/Lyrics', 1], ['Color Grading mit LUT', 2],
@@ -131,13 +152,13 @@ export const SKILLS = {
 };
 
 const SKILL_AREAS = {
-  instrumental: ['Drums', 'Sound Design', 'Mixing', 'Arrangement', 'Sampling', 'Musiktheorie'],
-  full_song: ['Vocals', 'Songwriting', 'Arrangement', 'Mixing'],
+  instrumental: ['Drums', 'Sound Design', 'Mixing', 'Arrangement', 'Sampling', 'Musiktheorie', 'Einspielen', 'Mastering'],
+  full_song: ['Vocals', 'Songwriting', 'Arrangement', 'Mixing', 'Mastering', 'Cover-Art'],
   vocal_chain: ['Vocals', 'Mixing'],
-  hook: ['Songwriting', 'Vocals'],
-  remix: ['Sampling', 'Arrangement', 'Sound Design'],
-  own: ['Drums', 'Sound Design', 'Musiktheorie', 'Sampling'],
-  video: ['Video'],
+  hook: ['Songwriting', 'Vocals', 'Einspielen'],
+  remix: ['Sampling', 'Arrangement', 'Sound Design', 'Mastering'],
+  own: ['Drums', 'Sound Design', 'Musiktheorie', 'Sampling', 'Einspielen', 'Cover-Art'],
+  video: ['Video', 'Release & Social', 'Cover-Art'],
 };
 
 // XP → level. Level decides how hard the challenges get.
@@ -148,26 +169,73 @@ export function levelInfo(xp) {
   const cur = LEVELS[lvl - 1], next = LEVELS[lvl] ?? cur + 400;
   return { level: lvl, xp, cur, next, frac: (xp - cur) / (next - cur) };
 }
-const maxSkillLvl = (level) => (level >= 5 ? 3 : level >= 2 ? 2 : 1);
+// ---- What are you good at? ----------------------------------------------
+// Looks at your own 1–10 ratings: per skill area, genre and order type.
+// Declined orders count as "not my thing right now".
+const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
 
-// Picks a technique: prefers areas/skills you haven't practised, never the
-// same area as the last order.
-export function pickChallenge(type, { level = 1, history = [] } = {}) {
-  const areas = SKILL_AREAS[type] || SKILL_AREAS.instrumental;
-  const done = new Set(history.filter((o) => o.challenge?.done).map((o) => o.challenge.name));
-  const recent = history.filter((o) => o.challenge).sort((a, b) => b.createdAt - a.createdAt);
-  const lastArea = recent[0]?.challenge.area;
-  const pool = [];
-  for (const area of areas) {
-    if (areas.length > 1 && area === lastArea) continue;
-    for (const [name, lvl] of SKILLS[area]) {
-      if (lvl > maxSkillLvl(level)) continue;
-      pool.push({ area, name, lvl, fresh: !done.has(name) });
+export function analyze(history) {
+  const areas = {}, genres = {}, types = {}, declined = { genres: {}, types: {} };
+  for (const area of Object.keys(SKILLS)) areas[area] = { done: 0, ratings: [] };
+  for (const o of history) {
+    if (o.deleted) continue;
+    if (o.status === 'declined') {
+      declined.genres[o.genre] = (declined.genres[o.genre] || 0) + 1;
+      declined.types[o.type] = (declined.types[o.type] || 0) + 1;
+      continue;
+    }
+    const r = o.review?.rating;
+    if (o.challenge?.done && areas[o.challenge.area]) {
+      areas[o.challenge.area].done++;
+      if (r) areas[o.challenge.area].ratings.push(r);
+    }
+    if (r) {
+      (genres[o.genre] ||= []).push(r);
+      (types[o.type] ||= []).push(r);
     }
   }
-  const fresh = pool.filter((x) => x.fresh);
-  const c = pick(fresh.length ? fresh : pool);
-  return c ? { area: c.area, name: c.name, lvl: c.lvl, done: null } : null;
+  const out = { areas: {}, genres: {}, types: {}, declined };
+  for (const [k, v] of Object.entries(areas)) {
+    const a = avg(v.ratings);
+    // Level per area: practise it (count) *and* be happy with the result (ratings).
+    let level = 1;
+    if (v.done >= 2 && (a ?? 7) >= 7) level = 2;
+    if (v.done >= 4 && a != null && a >= 8.5) level = 3;
+    out.areas[k] = { done: v.done, avg: a, level };
+  }
+  for (const [k, v] of Object.entries(genres)) out.genres[k] = { n: v.length, avg: avg(v) };
+  for (const [k, v] of Object.entries(types)) out.types[k] = { n: v.length, avg: avg(v) };
+  return out;
+}
+
+// Picks one technique for an order. Three modes:
+//   aufbauen – an area you're already good at, at your (higher) level there
+//   neu      – an area you've never done: a completely different skill set
+//   üben     – anything else in the order's areas you haven't nailed yet
+// Never the same area as the previous order; unpractised skills first.
+export function pickChallenge(type, { history = [] } = {}) {
+  const stats = analyze(history);
+  const all = SKILL_AREAS[type] || SKILL_AREAS.instrumental;
+  const lastArea = history.filter((o) => o.challenge && !o.deleted).sort((a, b) => b.createdAt - a.createdAt)[0]?.challenge.area;
+  const areas = all.length > 1 ? all.filter((a) => a !== lastArea) : all;
+  const doneNames = new Set(history.filter((o) => o.challenge?.done).map((o) => o.challenge.name));
+
+  const untried = areas.filter((a) => stats.areas[a].done === 0);
+  const strong = areas.filter((a) => stats.areas[a].level >= 2 || (stats.areas[a].avg ?? 0) >= 8);
+  const r = Math.random();
+  let mode, area;
+  if (untried.length && (r < 0.4 || untried.length === areas.length)) { mode = 'neu'; area = pick(untried); }
+  else if (strong.length && r < 0.8) { mode = 'aufbauen'; area = pick(strong); }
+  else { mode = 'üben'; area = pick(areas); }
+
+  const lvl = mode === 'neu' ? 1 : stats.areas[area].level;
+  const skills = SKILLS[area].filter(([, l]) => l <= lvl).map(([name, l]) => ({ name, l }));
+  const fresh = skills.filter((x) => !doneNames.has(x.name));
+  // Building on a strength → prefer the hardest skill you've unlocked there.
+  const pool = fresh.length ? fresh : skills;
+  const top = mode === 'aufbauen' ? pool.filter((x) => x.l === Math.max(...pool.map((y) => y.l))) : pool;
+  const c = pick(top);
+  return c ? { area, name: c.name, lvl: c.l, mode, done: null } : null;
 }
 
 // ---- Video concepts ----------------------------------------------------
@@ -183,7 +251,7 @@ const VIDEO_CONCEPTS = [
   { format: 'Lyric Video', ratio: '16:9 oder 9:16', length: 'ganzer Song', idea: 'Lyric-Video zu „{song}“: Text synchron zum Song, Schrift passend zum {genre}-Vibe.' },
 ];
 
-export function createVideoOrder(song, { concept, level = 1, history = [] } = {}) {
+export function createVideoOrder(song, { concept, history = [], settings } = {}) {
   const now = Date.now();
   const c = concept || pick(VIDEO_CONCEPTS);
   const songTitle = song.title || `${ORDER_TYPES[song.type]?.label || 'Song'} für ${song.client}`;
@@ -194,10 +262,10 @@ export function createVideoOrder(song, { concept, level = 1, history = [] } = {}
     brief: fill(c.idea, vars),
     concept: c,
     sourceOrderId: song.id,
-    challenge: pickChallenge('video', { level, history }),
+    challenge: pickChallenge('video', { history }),
     bpm: null, key: null, mood: c.format, instruments: [],
     budget: 0, createdAt: now,
-    deadline: deadlineIn(randInt(ORDER_TYPES.video.days[0], ORDER_TYPES.video.days[1])),
+    deadline: deadlineFor(ORDER_TYPES.video.effort, now, settings?.week),
     status: 'new', submissions: [], deliveredAt: null, deliveredSubmissionId: null,
     reply: null, rating: null, updatedAt: now,
   };
@@ -220,9 +288,17 @@ export const DEFAULT_SETTINGS = {
   artistName: '',
   ordersPerWeek: 2,
   maxActive: 2,
-  eveningStart: 17, // Uhrzeit, ab der Aufträge unter der Woche reinkommen dürfen
-  eveningEnd: 22,
-  weekends: true,
+  // Freie Zeit pro Wochentag (0 = So … 6 = Sa) als "HH:MM"-Fenster, null = kein Slot.
+  // Standard: Vollzeitjob + Pendeln, Training Mo/Di/Do, Match am Wochenende.
+  week: [
+    { from: '11:00', to: '18:00' }, // So
+    { from: '20:45', to: '23:00' }, // Mo (Training bis 20:00 + Fahrt)
+    { from: '20:45', to: '23:00' }, // Di (Training)
+    { from: '19:00', to: '23:00' }, // Mi (Arbeit bis 18:15 + Fahrt)
+    { from: '20:45', to: '23:00' }, // Do (Training)
+    { from: '16:00', to: '23:00' }, // Fr (früher frei – Hauptblock)
+    { from: '18:00', to: '22:30' }, // Sa (nach dem Match)
+  ],
   genres: ['Trap', 'Boom Bap', 'R&B', 'Deutschrap', 'Lo-Fi'],
   types: { instrumental: 3, full_song: 1, vocal_chain: 1, hook: 1, remix: 1 }, // Gewichtung, 0 = aus
   notifications: false,
@@ -241,27 +317,27 @@ function fill(tpl, vars) {
   return tpl.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
 }
 
-// Deadline: n days out, snapped to 23:59 so it's always "bis Ende Tag X".
-function deadlineIn(days, from = new Date()) {
-  const d = new Date(from);
-  d.setDate(d.getDate() + days);
-  d.setHours(23, 59, 0, 0);
-  return d.getTime();
+// Genres/types you declined recently come up less often.
+function weightedPick(items, weightOf) {
+  const w = items.map(weightOf);
+  let r = Math.random() * w.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < items.length; i++) if ((r -= w[i]) <= 0) return items[i];
+  return items[items.length - 1];
 }
 
-// `at` lets us pre-generate an order that "arrives" later (scheduled notification).
-// `history` (your previous orders) keeps things varied: no genre from the
-// last two orders, no type twice in a row (if alternatives exist).
-export function generateOrder(settings, { type, at, history = [], level = 1 } = {}) {
-  const recent = [...history].filter((o) => o.type !== 'own' && o.type !== 'video').sort((a, b) => b.createdAt - a.createdAt);
+export function generateOrder(settings, { type, at, history = [] } = {}) {
+  const { declined } = analyze(history.slice(-40));
+  const recent = [...history].filter((o) => o.type !== 'own' && o.type !== 'video' && !o.deleted).sort((a, b) => b.createdAt - a.createdAt);
   const known = (settings.genres?.length ? settings.genres : Object.keys(GENRES)).filter((g) => GENRES[g]);
   const genreNames = known.length ? known : Object.keys(GENRES);
   const recentGenres = recent.slice(0, 2).map((o) => o.genre);
   const freshGenres = genreNames.filter((g) => !recentGenres.includes(g));
-  const genre = pick(freshGenres.length ? freshGenres : genreNames);
+  const genre = weightedPick(freshGenres.length ? freshGenres : genreNames, (g) => 1 / (1 + (declined.genres[g] || 0)));
   const g = GENRES[genre];
-  let t = type || weightedType(settings.types || DEFAULT_SETTINGS.types);
-  for (let i = 0; !type && i < 4 && t === recent[0]?.type; i++) t = weightedType(settings.types || DEFAULT_SETTINGS.types);
+  const tw = Object.fromEntries(Object.entries(settings.types || DEFAULT_SETTINGS.types)
+    .map(([k, w]) => [k, w / (1 + 0.5 * (declined.types[k] || 0))]));
+  let t = type || weightedType(tw);
+  for (let i = 0; !type && i < 4 && t === recent[0]?.type; i++) t = weightedType(tw);
   const T = ORDER_TYPES[t];
   const bpm = randInt(g.bpm[0], g.bpm[1]);
   const [i1, i2] = pickN(g.inst, 2);
@@ -280,10 +356,11 @@ export function generateOrder(settings, { type, at, history = [], level = 1 } = 
     mood: vars.mood,
     instruments: t === 'vocal_chain' ? [] : [i1, i2],
     brief: fill(pick(BRIEFS[t]), vars),
-    challenge: pickChallenge(t, { level, history }),
+    challenge: pickChallenge(t, { history }),
+    effort: T.effort,
     budget: Math.round(rand(T.budget[0], T.budget[1]) / 5) * 5,
     createdAt: now,
-    deadline: deadlineIn(randInt(T.days[0], T.days[1]), new Date(now)),
+    deadline: deadlineFor(T.effort, now, settings.week),
     status: 'new', // new → in_progress → delivered
     submissions: [],
     deliveredAt: null,
@@ -294,13 +371,13 @@ export function generateOrder(settings, { type, at, history = [], level = 1 } = 
   };
 }
 
-export function createOwnProject({ title, genre, level = 1, history = [] }) {
+export function createOwnProject({ title, genre, history = [] }) {
   const now = Date.now();
   return {
     id: uid(), client: 'Du', type: 'own', genre: genre || 'Sonstiges',
     bpm: null, key: null, mood: null, instruments: [],
     brief: title || 'Eigenes Projekt', title: title || 'Eigenes Projekt',
-    challenge: pickChallenge('own', { level, history }),
+    challenge: pickChallenge('own', { history }),
     budget: 0, createdAt: now, deadline: null, status: 'in_progress',
     submissions: [], deliveredAt: null, deliveredSubmissionId: null,
     reply: null, rating: null, updatedAt: now,
@@ -315,22 +392,53 @@ export function clientReply(order) {
 }
 
 // ---- Scheduling ---------------------------------------------------------
-// Orders only arrive in the "free time" window: weekday evenings and
-// (optionally) weekend daytime, so they fit around a full-time job.
+// Everything runs on your weekly plan (settings.week): orders arrive when a
+// free slot starts, and deadlines are counted in *free hours*, not days.
 
-function inWindow(date, s) {
-  const day = date.getDay(); // 0 = So, 6 = Sa
-  const h = date.getHours();
-  const weekend = day === 0 || day === 6;
-  if (weekend) return s.weekends && h >= 10 && h < s.eveningEnd;
-  return h >= s.eveningStart && h < s.eveningEnd;
+const toMin = (hhmm) => { const [h, m] = String(hhmm).split(':').map(Number); return h * 60 + (m || 0); };
+
+// Free window of the calendar day containing `ts` → [start, end] timestamps or null.
+export function windowOn(ts, week) {
+  const d = new Date(ts);
+  const w = (week || DEFAULT_SETTINGS.week)[d.getDay()];
+  if (!w?.from || !w?.to || toMin(w.to) <= toMin(w.from)) return null;
+  d.setHours(0, 0, 0, 0);
+  return [d.getTime() + toMin(w.from) * 60e3, d.getTime() + toMin(w.to) * 60e3];
 }
 
+export function freeMinutesPerWeek(week) {
+  return (week || DEFAULT_SETTINGS.week).reduce((a, w) => a + (w?.from && w?.to ? Math.max(0, toMin(w.to) - toMin(w.from)) : 0), 0);
+}
+
+// Deadline = end of the day on which your free time since `from` covers
+// 2.5× the effort (you won't spend every free minute on it). 2–14 days.
+const EFFORT_FACTOR = 2.5;
+export function deadlineFor(effortH, from = Date.now(), week) {
+  const need = (effortH || 3) * 60 * EFFORT_FACTOR;
+  const day = new Date(from);
+  day.setHours(12, 0, 0, 0);
+  let acc = 0;
+  for (let i = 0; i < 14; i++) {
+    const win = windowOn(day.getTime(), week);
+    if (win) acc += Math.max(0, win[1] - Math.max(win[0], from)) / 60e3;
+    if (acc >= need && i >= 2) break;
+    if (i < 13) day.setDate(day.getDate() + 1);
+  }
+  day.setHours(23, 59, 0, 0);
+  return day.getTime();
+}
+
+// Next moment you're free (at least an hour left in the slot).
 export function snapToWindow(ts, s) {
-  const d = new Date(ts);
-  for (let i = 0; i < 24 * 8; i++) {
-    if (inWindow(d, s)) return d.getTime();
-    d.setHours(d.getHours() + 1, randInt(0, 50), 0, 0);
+  const day = new Date(ts);
+  for (let i = 0; i < 8; i++) {
+    const win = windowOn(day.getTime(), s.week);
+    if (win) {
+      const at = Math.max(win[0], ts);
+      if (win[1] - at >= 60 * 60e3) return at === win[0] ? at + randInt(0, 20) * 60e3 : at;
+    }
+    day.setDate(day.getDate() + 1);
+    day.setHours(0, 0, 0, 0);
   }
   return ts;
 }

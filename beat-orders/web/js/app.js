@@ -2,8 +2,9 @@ import { db, requestPersistence } from './db.js';
 import {
   ORDER_TYPES, GENRES, DEFAULT_SETTINGS, generateOrder, createOwnProject,
   clientReply, nextArrival, uid, createVideoOrder, rerollConcept, reviewOpensAt,
-  SKILLS, levelInfo,
+  SKILLS, levelInfo, analyze, pickChallenge, windowOn, freeMinutesPerWeek,
 } from './generator.js';
+import { SHOP, ITEMS, TROPHIES, TROPHY_BONUS, orderCoins, DEFAULT_PROFILE } from './shop.js';
 import { cloud } from './cloud.js';
 import {
   isNative, App, LocalNotifications, notifId, requestNotificationPermission, scheduleAll, shareBlob,
@@ -20,6 +21,9 @@ const state = {
   playing: null, // { orderId, subId, url }
   cloudUser: null,
   nextOrderAt: null,
+  profile: { ...DEFAULT_PROFILE },
+  pfpUrl: null,
+  shopTab: 'frames',
 };
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -32,6 +36,12 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const isActive = (o) => !o.deleted && (o.status === 'new' || o.status === 'in_progress');
 const visible = (o) => !o.deleted && o.status !== 'declined';
 const DAY = 86400000;
+const MODE = {
+  neu: { icon: '🧭', label: 'Neuland – ganz neues Skillset' },
+  aufbauen: { icon: '📈', label: 'Baut auf deiner Stärke auf' },
+  'üben': { icon: '🎯', label: 'Üben' },
+};
+const fmtHours = (h) => `${String(h).replace('.', ',')} Std`;
 const selfMade = (o) => o.type === 'own' || o.type === 'video'; // no "client"
 const isAudioFile = (s) => (s.mime || '').startsWith('audio/') || /\.(mp3|wav|m4a|aac|flac|aiff?|ogg)$/i.test(s.name);
 const isVideoFile = (s) => (s.mime || '').startsWith('video/') || /\.(mp4|mov|m4v|webm|3gp)$/i.test(s.name);
@@ -63,9 +73,39 @@ function progress() {
   if (!weeks.has(w)) w -= 7 * DAY;
   while (weeks.has(w)) { streak++; w = weekStart(w - 3 * DAY); }
   const skills = new Set(done.filter((o) => o.challenge?.done).map((o) => o.challenge.name));
-  return { ...info, streak, skills };
+  const thr = state.settings.videoThreshold;
+  const rated = done.filter((o) => o.review?.rating);
+  const genreAvg = {};
+  for (const o of rated) (genreAvg[o.genre] ||= []).push(o.review.rating);
+  const tstats = {
+    delivered: done.filter((o) => !selfMade(o)).length,
+    onTime: done.filter((o) => o.deadline && o.deliveredAt <= o.deadline).length,
+    tens: rated.filter((o) => o.review.rating === 10).length,
+    videos: done.filter((o) => o.type === 'video').length,
+    streak, skills: skills.size, level: info.level,
+    areas: new Set(done.filter((o) => o.challenge?.done).map((o) => o.challenge.area)).size,
+    goodGenres: Object.values(genreAvg).filter((a) => a.reduce((x, y) => x + y, 0) / a.length >= 8).length,
+  };
+  const trophies = TROPHIES.map((t) => { const [cur, goal] = t.check(tstats); return { ...t, cur: Math.min(cur, goal), goal, won: cur >= goal }; });
+  const earned = done.reduce((a, o) => a + orderCoins(o, thr), 0) + trophies.filter((t) => t.won).length * TROPHY_BONUS;
+  const spent = state.profile.owned.reduce((a, id) => a + (ITEMS[id]?.price || 0), 0);
+  return { ...info, streak, skills, trophies, coins: earned - spent };
 }
-const genOpts = () => ({ history: state.orders.filter((o) => !o.deleted), level: progress().level });
+const genOpts = () => ({ history: state.orders.filter((o) => !o.deleted), settings: state.settings });
+
+// Toast the XP/coins/trophies a change brought ("before" = progress() before it).
+function rewardToast(before, msg) {
+  const after = progress();
+  const parts = [];
+  if (after.xp > before.xp) parts.push(`+${after.xp - before.xp} XP`);
+  if (after.coins > before.coins) parts.push(`+${after.coins - before.coins} 🪙`);
+  toast([msg, parts.join(' · ')].filter(Boolean).join(' · '));
+  const newT = after.trophies.filter((t) => t.won && !before.trophies.find((b) => b.id === t.id).won);
+  const extra = [];
+  if (after.level > before.level) extra.push(`⬆️ Level ${after.level}!`);
+  for (const t of newT) extra.push(`${t.icon} Trophäe: ${t.name} (+${TROPHY_BONUS} 🪙)`);
+  extra.forEach((m, i) => setTimeout(() => toast(m), 2800 * (i + 1)));
+}
 
 function hue(str) {
   let h = 0;
@@ -217,6 +257,12 @@ async function receiveOrder(order) {
   render();
 }
 
+const slotStart = (ts) => {
+  const w = windowOn(ts, state.settings.week);
+  if (w) return w[0];
+  const d = new Date(ts); d.setHours(18, 0, 0, 0); return d.getTime();
+};
+
 // Android: (re)plan the upcoming order notification plus deadline reminders.
 async function scheduleNative(pending) {
   if (!isNative || !state.settings.notifications) return;
@@ -233,8 +279,7 @@ async function scheduleNative(pending) {
   }
   for (const o of state.orders.filter(isActive)) {
     if (!o.deadline) continue;
-    const at = new Date(o.deadline);
-    at.setHours(state.settings.eveningStart, 0, 0, 0); // evening of the deadline day
+    const at = new Date(slotStart(o.deadline)); // when your free time starts that day
     list.push({
       id: notifId(o.id),
       title: `⏰ Heute fällig: ${orderTitle(o)}`,
@@ -244,8 +289,7 @@ async function scheduleNative(pending) {
     });
   }
   for (const o of state.orders.filter((x) => visible(x) && x.review && !x.review.rating)) {
-    const at = new Date(o.review.opensAt);
-    at.setHours(state.settings.eveningStart, 0, 0, 0);
+    const at = new Date(slotStart(o.review.opensAt));
     list.push({
       id: notifId(o.id + ':review'),
       title: `🎧 Nochmal anhören: ${orderTitle(o)}`,
@@ -292,6 +336,7 @@ function render() {
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === state.tab));
   if (state.tab === 'orders') view.innerHTML = renderOrders();
   else if (state.tab === 'library') view.innerHTML = renderLibrary();
+  else if (state.tab === 'profile') view.innerHTML = renderProfile();
   else view.innerHTML = renderSettings();
   renderMiniPlayer();
 }
@@ -337,7 +382,8 @@ function orderCard(o) {
     ${o.type === 'own' ? '' : `<p class="order-brief">${esc(o.brief)}</p>`}
     <div class="order-foot">
       <span class="pill ${due.cls}">${due.text}</span>
-      ${o.challenge ? `<span class="pill ${o.challenge.done ? 'green' : 'blue'}">🎯 ${esc(o.challenge.area)}${o.challenge.done ? ' ✓' : ''}</span>` : ''}
+      ${o.challenge ? `<span class="pill ${o.challenge.done ? 'green' : 'blue'}">${MODE[o.challenge.mode]?.icon || '🎯'} ${esc(o.challenge.area)}${o.challenge.done ? ' ✓' : ''}</span>` : ''}
+      ${o.effort && o.status !== 'delivered' ? `<span class="pill">⏱ ~${fmtHours(o.effort)}</span>` : ''}
       ${o.submissions.length ? `<span class="pill">${o.type === 'video' ? '🎬' : '🎧'} ${o.submissions.length} Version${o.submissions.length > 1 ? 'en' : ''}</span>` : ''}
       <span class="spacer"></span>
       ${o.budget ? `<span class="pill green">${o.budget} €</span>` : ''}
@@ -394,7 +440,7 @@ function progressCard() {
     <div class="level-main">
       <div class="level-top"><b>Level ${p.level}</b><span>${p.xp} / ${p.next} XP</span></div>
       <div class="progress" style="margin-top:6px"><i style="width:${Math.round(Math.min(1, p.frac) * 100)}%"></i></div>
-      <div class="level-stats"><span>🔥 ${p.streak} ${p.streak === 1 ? 'Woche' : 'Wochen'} Serie</span><span>🎯 ${p.skills.size} Skills gelernt</span></div>
+      <div class="level-stats"><span>🔥 ${p.streak} ${p.streak === 1 ? 'Woche' : 'Wochen'} Serie</span><span>🎯 ${p.skills.size} Skills</span><span>🪙 ${p.coins}</span></div>
     </div>
   </div>`;
 }
@@ -509,6 +555,126 @@ function toggle(key, on) {
   return `<label class="switch"><input type="checkbox" data-toggle="${key}" ${on ? 'checked' : ''}/><span></span></label>`;
 }
 
+// ---------------------------------------------------------------- profile --
+
+function avatarHtml(size = 104) {
+  const name = state.settings.artistName || 'Du';
+  const inner = state.pfpUrl
+    ? `<img src="${state.pfpUrl}" alt="" />`
+    : `<span style="font-size:${Math.round(size / 2.6)}px">${esc(initials(name) || '🎧')}</span>`;
+  return `<div class="pfp-wrap ${state.profile.frame || 'frame-none'}" style="width:${size}px;height:${size}px">
+    <div class="pfp" style="background:${gradient(name)}">${inner}</div></div>`;
+}
+
+function strengths() {
+  const a = analyze(state.orders);
+  const good = [], weak = [];
+  for (const [k, v] of Object.entries(a.areas)) {
+    if (!v.done) continue;
+    if (v.level >= 2 || (v.avg ?? 0) >= 8) good.push(`${k}${v.avg ? ` · ${v.avg.toFixed(1)}` : ''}`);
+    else if (v.avg != null && v.avg < 7) weak.push(`${k} · ${v.avg.toFixed(1)}`);
+  }
+  for (const [k, v] of Object.entries(a.genres)) {
+    if (v.avg >= 8) good.push(`${k} · ${v.avg.toFixed(1)}`);
+    else if (v.avg < 7) weak.push(`${k} · ${v.avg.toFixed(1)}`);
+  }
+  for (const [k, v] of Object.entries(a.types)) {
+    const label = ORDER_TYPES[k]?.label || k;
+    if (v.avg >= 8) good.push(`${label} · ${v.avg.toFixed(1)}`);
+    else if (v.avg < 7) weak.push(`${label} · ${v.avg.toFixed(1)}`);
+  }
+  const fresh = Object.entries(a.areas).filter(([, v]) => !v.done).map(([k]) => k);
+  return { good, weak, fresh };
+}
+
+function renderProfile() {
+  const p = progress();
+  const st = strengths();
+  const done = state.orders.filter((o) => visible(o) && o.status === 'delivered');
+  const rated = done.filter((o) => o.review?.rating);
+  const owned = state.profile.owned.map((id) => ITEMS[id]).filter((i) => i?.cat === 'studio');
+  const chips = (list, cls) => list.map((x) => `<span class="pill ${cls}">${esc(x)}</span>`).join('');
+  return `
+    <div class="profile-head">
+      <div class="profile-banner ${state.profile.banner || 'banner-none'}"></div>
+      <button class="profile-pfp" data-action="pfp" aria-label="Profilbild ändern">${avatarHtml()}</button>
+    </div>
+    <h1 class="profile-name">${esc(state.settings.artistName || 'Dein Name')}</h1>
+    <p class="subtitle" style="text-align:center">Level ${p.level} · ${p.xp} XP</p>
+    <div class="btn-row" style="margin:0 0 6px">
+      <button class="btn" data-action="open-shop">🛍️ Shop · ${p.coins} 🪙</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat glass"><b>${done.length}</b><span>Abgaben</span></div>
+      <div class="stat glass"><b>${rated.length ? (rated.reduce((a, o) => a + o.review.rating, 0) / rated.length).toFixed(1) : '–'}</b><span>Ø Bewertung</span></div>
+      <div class="stat glass"><b>${p.skills.size}</b><span>Skills</span></div>
+      <div class="stat glass"><b>${p.streak}</b><span>Wochen 🔥</span></div>
+    </div>
+
+    <div class="section-title">Was du kannst</div>
+    <div class="card glass" style="cursor:default">
+      <div class="skill-row"><b>💪 Stärken</b><div class="chip-wrap">${st.good.length ? chips(st.good, 'green') : '<span class="muted">Noch zu wenig Bewertungen – gib ab und bewerte ehrlich.</span>'}</div></div>
+      <div class="skill-row"><b>🛠️ Ausbaufähig</b><div class="chip-wrap">${st.weak.length ? chips(st.weak, 'orange') : '<span class="muted">Nichts unter 7/10 – stark!</span>'}</div></div>
+      <div class="skill-row"><b>🧭 Neuland</b><div class="chip-wrap">${st.fresh.length ? chips(st.fresh, 'blue') : '<span class="muted">Alles schon ausprobiert 🤯</span>'}</div></div>
+      <p class="footnote" style="margin:10px 0 0">Aufträge bauen auf deinen Stärken auf (schwierigere Techniken) und schicken dich regelmäßig ins Neuland.</p>
+    </div>
+
+    <div class="section-title">Trophäen <small>${p.trophies.filter((t) => t.won).length}/${p.trophies.length}</small></div>
+    <div class="trophies">
+      ${p.trophies.map((t) => `<div class="trophy glass ${t.won ? 'won' : ''}">
+        <div class="t-icon">${t.icon}</div><b>${esc(t.name)}</b><span>${t.won ? esc(t.desc) : `${t.cur}/${t.goal} · ${esc(t.desc)}`}</span></div>`).join('')}
+    </div>
+
+    <div class="section-title">Mein Studio <small>${owned.length}/${SHOP.studio.items.length}</small></div>
+    ${owned.length ? `<div class="studio glass">${owned.map((i) => `<div class="studio-item" title="${esc(i.name)}"><span>${i.emoji}</span><small>${esc(i.name)}</small></div>`).join('')}</div>`
+      : `<div class="empty glass"><div class="big">🏠</div><h3>Dein Studio ist noch leer</h3><p>Verdien Coins mit Aufträgen und richte es im Shop ein.</p>
+        <button class="btn small" data-action="open-shop">Zum Shop</button></div>`}
+  `;
+}
+
+function renderShopSheet() {
+  const p = progress();
+  const tab = state.shopTab;
+  const items = SHOP[tab].items;
+  const tile = (i) => {
+    const owned = state.profile.owned.includes(i.id);
+    const equipped = state.profile.frame === i.id || state.profile.banner === i.id;
+    const preview = tab === 'frames'
+      ? `<div class="pfp-wrap ${i.id}" style="width:72px;height:72px"><div class="pfp" style="background:${gradient(state.settings.artistName || 'Du')}">${state.pfpUrl ? `<img src="${state.pfpUrl}" alt="" />` : '🎧'}</div></div>`
+      : tab === 'banners' ? `<div class="profile-banner ${i.id}" style="height:64px;border-radius:14px;width:100%"></div>`
+      : `<div class="shop-emoji">${i.emoji}</div>`;
+    const btn = !owned
+      ? `<button class="btn small ${p.coins < i.price ? 'secondary' : ''}" data-action="buy" data-id="${i.id}" ${p.coins < i.price ? 'disabled' : ''}>${i.price} 🪙</button>`
+      : tab === 'studio' ? '<span class="pill green">Im Studio ✓</span>'
+      : `<button class="btn small ${equipped ? 'secondary' : ''}" data-action="equip" data-id="${i.id}">${equipped ? 'Ablegen' : 'Anlegen'}</button>`;
+    return `<div class="shop-item glass">${preview}<b>${esc(i.name)}</b>${btn}</div>`;
+  };
+  return `
+    <div class="sheet-head">
+      <button class="btn plain" data-action="close-sheet">Fertig</button>
+      <h2>Shop</h2>
+      <span style="width:80px;text-align:right"><span class="pill orange">${p.coins} 🪙</span></span>
+    </div>
+    <div class="segmented">${Object.entries(SHOP).map(([k, c]) => `<button class="${k === tab ? 'on' : ''}" data-action="shop-tab" data-v="${k}">${c.label}</button>`).join('')}</div>
+    <div class="shop-grid ${tab}">${items.map(tile).join('')}</div>
+    <p class="footnote">Coins gibt's für jede Abgabe (+20), Pünktlichkeit (+10), geschaffte Challenges (+15), gute Bewertungen (+10/+25) und Trophäen (+${TROPHY_BONUS}).</p>
+  `;
+}
+
+async function saveProfile() {
+  await db.set('profile', state.profile);
+}
+
+// 24h picker in 15-min steps (native <input type=time> follows the phone's 12/24h setting).
+const TIMES = Array.from({ length: 97 }, (_, i) => `${String(Math.floor(i / 4)).padStart(2, '0')}:${String((i % 4) * 15).padStart(2, '0')}`);
+function timeSelect(value, key, label) {
+  return `<select class="time" data-week="${key}" aria-label="${label}">
+    <option value="" ${value ? '' : 'selected'}>frei</option>
+    ${TIMES.map((t) => `<option ${t === value ? 'selected' : ''}>${t}</option>`).join('')}
+  </select>`;
+}
+
 function renderSettings() {
   const s = state.settings;
   const genreRows = Object.keys(GENRES).map((g) => `
@@ -531,12 +697,30 @@ function renderSettings() {
     <div class="group glass">
       <div class="row"><span class="label">Aufträge pro Woche</span><span class="value">${s.ordersPerWeek}</span>${stepper('ordersPerWeek', 1, 14)}</div>
       <div class="row"><span class="label">Max. gleichzeitig</span><span class="value">${s.maxActive}</span>${stepper('maxActive', 1, 6)}</div>
-      <div class="row"><span class="label">Abends ab</span><span class="value">${s.eveningStart}:00</span>${stepper('eveningStart', 6, 21)}</div>
-      <div class="row"><span class="label">Bis</span><span class="value">${s.eveningEnd}:00</span>${stepper('eveningEnd', 12, 24)}</div>
-      <div class="row"><span class="label">Auch am Wochenende</span>${toggle('weekends', s.weekends)}</div>
       <div class="row"><span class="label">Video-Freigabe ab</span><span class="value">${s.videoThreshold}/10</span>${stepper('videoThreshold', 5, 10)}</div>
     </div>
-    <p class="footnote">Aufträge kommen nur in deiner Freizeit rein (werktags abends, optional am Wochenende) – passend zu deinem Vollzeitjob. Am Tag nach der Abgabe hörst du deinen Track nochmal an und bewertest ihn – ab der Video-Freigabe bekommst du einen Video-/TikTok-Auftrag dazu.</p>
+    <p class="footnote">Am Tag nach der Abgabe hörst du deinen Track nochmal an und bewertest ihn – ab der Video-Freigabe bekommst du einen Video-/TikTok-Auftrag dazu.</p>
+
+    <div class="group-title">Wochenplan – wann hast du Zeit?</div>
+    <div class="group glass">
+      ${[1, 2, 3, 4, 5, 6, 0].map((d) => {
+        const w = s.week[d] || {};
+        return `<div class="row"><span class="label">${['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'][d]}</span>
+          ${timeSelect(w.from, `${d}:from`, 'von')}
+          <span style="color:var(--label-2)">–</span>
+          ${timeSelect(w.to, `${d}:to`, 'bis')}</div>`;
+      }).join('')}
+    </div>
+    ${(() => {
+      const free = freeMinutesPerWeek(s.week) / 60;
+      const types = Object.entries(s.types).filter(([, w]) => w > 0);
+      const avgEffort = types.reduce((a, [k, w]) => a + ORDER_TYPES[k].effort * w, 0) / Math.max(1, types.reduce((a, [, w]) => a + w, 0));
+      const planned = s.ordersPerWeek * avgEffort;
+      const pct = free ? Math.round((planned / free) * 100) : 0;
+      return `<p class="footnote">Freizeit: <b>${Math.round(free)} Std/Woche</b> · eingeplant ~${Math.round(planned)} Std (${pct} %).
+        ${pct > 45 ? '⚠️ Das ist viel – lieber weniger Aufträge pro Woche, dafür gescheit.' : pct < 15 ? 'Da ist noch Luft nach oben.' : '👍 Machbar, ohne dass es stresst.'}
+        Aufträge kommen, wenn deine freie Zeit anfängt, und die Deadline richtet sich nach deinen freien Stunden. Feld leer lassen = an dem Tag keine Zeit.</p>`;
+    })()}
 
     <div class="group-title">Auftragsarten</div>
     <div class="group glass">${typeRows}</div>
@@ -630,6 +814,7 @@ function renderSheet() {
   let html = '';
   if (s.kind === 'order') html = renderOrderSheet(state.orders.find((o) => o.id === s.id));
   else if (s.kind === 'own') html = renderOwnSheet();
+  else if (s.kind === 'shop') html = renderShopSheet();
   const oldVideo = $('#sheet video');
   if (oldVideo) oldVideo.remove(); // detach so it keeps playing
   $('#sheet').innerHTML = `<div class="grabber"></div>${html}`;
@@ -663,6 +848,7 @@ function renderOrderSheet(o) {
     o.mood && ['Vibe', o.mood],
     o.deadline && ['Deadline', `${fmtDate(o.deadline)}`],
     o.budget && ['Budget', `${o.budget} €`],
+    o.effort && ['Aufwand', `~${fmtHours(o.effort)}`],
   ].filter(Boolean);
   // Odd number of tiles → stretch the last one; instruments always get a full row.
   if (specs.length % 2) specs[specs.length - 1].wide = true;
@@ -687,9 +873,10 @@ function renderOrderSheet(o) {
       ${o.type === 'video' ? `<div class="thread"><div class="bubble them">🎬 ${esc(o.brief)}</div></div>` : ''}`}
 
     ${o.challenge ? `<div class="challenge glass">
-      <div class="challenge-ico">🎯</div>
-      <div><span>Lern-Challenge · ${esc(o.challenge.area)} · ${'●'.repeat(o.challenge.lvl)}${'○'.repeat(3 - o.challenge.lvl)}</span>
+      <div class="challenge-ico">${MODE[o.challenge.mode]?.icon || '🎯'}</div>
+      <div style="flex:1"><span>${MODE[o.challenge.mode] ? `${MODE[o.challenge.mode].label} · ` : 'Lern-Challenge · '}${esc(o.challenge.area)} · ${'●'.repeat(o.challenge.lvl)}${'○'.repeat(3 - o.challenge.lvl)}</span>
         <b>${esc(o.challenge.name)}</b>
+        ${o.status !== 'delivered' ? `<button class="btn plain small" style="padding:0;min-height:30px" data-action="reroll-challenge" data-id="${o.id}">🎲 Andere Challenge</button>` : ''}
         ${o.challenge.done === true ? '<span style="color:var(--green)">✓ Umgesetzt</span>' : o.challenge.done === false ? '<span>Nicht umgesetzt – kommt wieder dran</span>' : ''}</div>
     </div>` : ''}
     ${renderReview(o)}
@@ -705,7 +892,7 @@ function renderOrderSheet(o) {
       <button class="btn secondary" data-action="reroll-video" data-id="${o.id}" style="margin-top:10px">🎲 Anderes Konzept</button>
     ` : o.status === 'new' ? `
       <button class="btn" data-action="accept" data-id="${o.id}">Auftrag annehmen</button>
-      <button class="btn danger" data-action="decline" data-id="${o.id}" style="margin-top:6px">Ablehnen</button>
+      <button class="btn secondary" data-action="decline" data-id="${o.id}" style="margin-top:10px">👎 Gefällt mir nicht – anderen Auftrag</button>
     ` : `
       <div class="section-title" style="margin-top:14px">Versionen <small>${subs.length}</small></div>
       ${subs.length ? subs.map((s) => subRow(o, s)).join('') : `<p class="footnote" style="margin:0 4px 10px">${o.type === 'video'
@@ -1007,12 +1194,27 @@ const actions = {
     render(); renderSheet();
   },
 
+  // Not feeling it? Decline and get a different order right away – as often
+  // as you like. Declines also teach the generator what you don't want.
   async decline(el) {
-    if (!confirm('Auftrag ablehnen?')) return;
     const o = state.orders.find((x) => x.id === el.dataset.id);
     o.status = 'declined';
     await saveOrder(o);
-    closeSheet();
+    const n = generateOrder(state.settings, genOpts());
+    await saveOrder(n);
+    toast('🔄 Neuer Auftrag');
+    render();
+    openSheet({ kind: 'order', id: n.id });
+  },
+
+  async 'reroll-challenge'(el) {
+    const o = state.orders.find((x) => x.id === el.dataset.id);
+    const hist = genOpts().history.filter((x) => x.id !== o.id);
+    let c;
+    for (let i = 0; i < 6 && (!c || c.name === o.challenge?.name); i++) c = pickChallenge(o.type, { history: hist });
+    o.challenge = c;
+    await saveOrder(o);
+    renderSheet();
   },
 
   upload: (el) => upload(el.dataset.id),
@@ -1033,9 +1235,7 @@ const actions = {
       o.review = { opensAt: reviewOpensAt(o.deliveredAt), listenedSec: 0, duration: latest.duration || null, rating: null };
     }
     await saveOrder(o);
-    const after = progress();
-    if (after.level > before.level) setTimeout(() => toast(`⬆️ Level ${after.level}! Schwierigere Challenges freigeschaltet`), 2800);
-    toast(`+${after.xp - before.xp} XP · ` + (o.review ? `Abgegeben ✅ Morgen nochmal anhören & bewerten` : selfMade(o) ? 'Fertig ✅' : 'Abgegeben ✅'));
+    rewardToast(before, o.review ? 'Abgegeben ✅ Morgen nochmal anhören' : selfMade(o) ? 'Fertig ✅' : 'Abgegeben ✅');
     render(); renderSheet();
   },
 
@@ -1094,14 +1294,11 @@ const actions = {
       const v = createVideoOrder(o, genOpts());
       o.review.videoOrderId = v.id;
       await saveOrder(v);
-      toast('🎬 Freigegeben! Neuer Video-Auftrag ist da.');
-    } else {
-      toast(`${n}/10 – nächstes Mal knackst du die ${state.settings.videoThreshold} 💪`);
     }
     if (state.playing?.orderId === o.id) audio.pause();
     await saveOrder(o);
-    const after = progress();
-    setTimeout(() => toast(after.level > before.level ? `⬆️ Level ${after.level}! +${after.xp - before.xp} XP` : `+${after.xp - before.xp} XP`), 2700);
+    rewardToast(before, n >= state.settings.videoThreshold ? '🎬 Freigegeben – Video-Auftrag ist da'
+      : `${n}/10 – nächstes Mal knackst du die ${state.settings.videoThreshold} 💪`);
     render(); renderSheet();
   },
 
@@ -1126,6 +1323,36 @@ const actions = {
   'filter-genre': (el) => { state.filter.genre = el.dataset.v; render(); },
 
   'new-own': () => openSheet({ kind: 'own' }),
+
+  'open-shop': () => openSheet({ kind: 'shop' }),
+  'shop-tab': (el) => { state.shopTab = el.dataset.v; renderSheet(); },
+  async buy(el) {
+    const item = ITEMS[el.dataset.id];
+    const p = progress();
+    if (!item || p.coins < item.price) return toast('Nicht genug Coins 🪙');
+    if (!confirm(`${item.name} für ${item.price} 🪙 kaufen?`)) return;
+    state.profile.owned = [...state.profile.owned, item.id];
+    if (item.cat === 'frames') state.profile.frame = item.id;
+    if (item.cat === 'banners') state.profile.banner = item.id;
+    await saveProfile();
+    toast(`${item.emoji || '✨'} ${item.name} gekauft!`);
+    renderSheet(); render();
+  },
+  async equip(el) {
+    const item = ITEMS[el.dataset.id];
+    const key = item.cat === 'frames' ? 'frame' : 'banner';
+    state.profile[key] = state.profile[key] === item.id ? null : item.id;
+    await saveProfile();
+    renderSheet(); render();
+  },
+  async pfp() {
+    const file = await pickFile('image/*');
+    if (!file) return;
+    await db.putFile('pfp', file);
+    if (state.pfpUrl) URL.revokeObjectURL(state.pfpUrl);
+    state.pfpUrl = URL.createObjectURL(file);
+    render();
+  },
   async 'create-own'() {
     const o = createOwnProject({ title: $('#ownTitle').value.trim(), genre: $('#ownGenre').value, ...genOpts() });
     await saveOrder(o);
@@ -1139,7 +1366,6 @@ const actions = {
     const s = state.settings;
     if (key === 'type') s.types[sub] = Math.min(max, Math.max(min, (s.types[sub] ?? 0) + d));
     else s[key] = Math.min(max, Math.max(min, s[key] + d));
-    if (s.eveningEnd <= s.eveningStart) s.eveningEnd = s.eveningStart + 1;
     await saveSettings();
     if (key === 'type') await refreshPending(true);
     else if (key === 'videoThreshold') { /* nur Anzeige */ }
@@ -1166,7 +1392,7 @@ const actions = {
   },
 
   async export() {
-    const data = JSON.stringify({ app: 'beat-orders', version: 1, exportedAt: Date.now(), settings: state.settings, orders: state.orders }, null, 2);
+    const data = JSON.stringify({ app: 'beat-orders', version: 1, exportedAt: Date.now(), settings: state.settings, profile: state.profile, orders: state.orders }, null, 2);
     const file = new File([data], `beat-orders-backup-${new Date().toISOString().slice(0, 10)}.json`, { type: 'application/json' });
     if (isNative) {
       try { await shareBlob(file, file.name, 'Beat Orders Backup'); } catch (e) { if (!/cancel/i.test(e.message)) toast(e.message); }
@@ -1193,6 +1419,7 @@ const actions = {
         if (!cur || (o.updatedAt || 0) > (cur.updatedAt || 0)) await db.putOrder(o);
       }
       if (data.settings) { state.settings = { ...DEFAULT_SETTINGS, ...data.settings }; await saveSettings(); }
+      if (data.profile) { state.profile = { ...DEFAULT_PROFILE, ...data.profile }; await saveProfile(); }
       state.orders = await db.allOrders();
       toast('Backup importiert ✅');
       render();
@@ -1281,7 +1508,15 @@ document.addEventListener('input', (e) => {
 
 document.addEventListener('change', async (e) => {
   const el = e.target;
-  if (el.dataset.setting) {
+  if (el.dataset.week) {
+    const [d, k] = el.dataset.week.split(':');
+    const week = state.settings.week.map((w) => ({ ...(w || {}) }));
+    week[d][k] = el.value || null;
+    state.settings.week = week;
+    await saveSettings();
+    await refreshPending(false);
+    render();
+  } else if (el.dataset.setting) {
     state.settings[el.dataset.setting] = el.value.trim();
     await saveSettings();
   } else if (el.dataset.lesson) {
@@ -1313,7 +1548,6 @@ document.addEventListener('change', async (e) => {
       if (!s.notifications) toast('Mitteilungen wurden nicht erlaubt.');
     } else {
       s[key] = el.checked;
-      if (key === 'weekends') { await saveSettings(); await refreshPending(false); }
     }
     await saveSettings();
     render();
@@ -1353,6 +1587,9 @@ async function boot() {
   state.settings.types = { ...DEFAULT_SETTINGS.types, ...state.settings.types };
   state.orders = await db.allOrders();
   state.hideInstallHint = await db.get('hideInstallHint');
+  state.profile = { ...DEFAULT_PROFILE, ...((await db.get('profile')) || {}) };
+  const pfp = await db.getFile('pfp');
+  if (pfp) state.pfpUrl = URL.createObjectURL(pfp.blob);
   state.lastSync = await db.get('lastSync');
   state.cloudConfigured = await cloud.configured();
 
