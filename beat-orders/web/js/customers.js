@@ -416,7 +416,7 @@ export function avatarSvg(customer, opts = {}) {
   const body = 'M4 100 C8 82 26 76 40 74 L60 74 C74 76 92 82 96 100Z';
   if (k.tank || k.glam) {
     p.push(`<path d="${body}" fill="${SK}"/>`);
-    if (k.glam) p.push(`<path d="M22 100 C26 90 32 86 38 86 C44 90 56 90 62 86 C68 86 74 90 78 100Z" fill="url(#${id}sh)"/><path d="M34 86 L36 76 M66 86 L64 76" stroke="${shade(k.shirt, -0.2)}" stroke-width="1.4"/>`);
+    if (k.glam) p.push(`<path d="M20 100 C24 91 30 88 36 88 C40 96 46 99 50 99 C54 99 60 96 64 88 C70 88 76 91 80 100Z" fill="url(#${id}sh)"/><path d="M36 88 L37 77 M64 88 L63 77" stroke="${shade(k.shirt, -0.15)}" stroke-width="1"/><path d="M47.5 91 Q50 95.5 52.5 91" stroke="${shade(sk, -0.28)}" stroke-width="1" fill="none" opacity=".45" stroke-linecap="round"/>`);
     else p.push(`<path d="M28 100 C30 88 36 80 40 76 C44 82 56 82 60 76 C64 80 70 88 72 100Z" fill="url(#${id}sh)"/>`);
   } else {
     p.push(`<path d="${body}" fill="url(#${id}sh)"/>`);
@@ -425,7 +425,7 @@ export function avatarSvg(customer, opts = {}) {
   if (k.hoodie) p.push(`<path d="M30 76 C38 86 62 86 70 76" stroke="${shade(k.shirt, -0.45)}" stroke-width="3" fill="none"/><path d="M44 82 l-1 12 M56 82 l1 12" stroke="#e5e7eb" stroke-width="1.5"/>`);
   if (k.tie) p.push(`<path d="M38 74 L50 82 L62 74 L60 80 L50 86 L40 80Z" fill="#f8fafc"/><path d="M47 82 L53 82 L55 98 L50 100 L45 98Z" fill="#b91c1c"/>`);
   if (k.chain) p.push('<path d="M36 76 C42 90 58 90 64 76" stroke="#fbbf24" stroke-width="2.6" fill="none" stroke-dasharray="2.2 1.2"/><circle cx="50" cy="88" r="3.6" fill="#fcd34d" stroke="#b45309" stroke-width=".8"/>');
-  if (k.glam) p.push('<path d="M40 78 C44 84 56 84 60 78" stroke="#fde68a" stroke-width="1" fill="none"/><path d="M50 83.5 l2 3 -2 3 -2 -3z" fill="#e0f2fe" stroke="#fff" stroke-width=".4"/>');
+  if (k.glam) p.push('<path d="M41 78 C44 83 56 83 59 78" stroke="#fde68a" stroke-width=".8" fill="none"/><path d="M50 82.2 l1.6 2.4 -1.6 2.4 -1.6 -2.4z" fill="#e0f2fe"/>');
 
   // neck
   p.push(`<path d="M42 64 L42 76 C46 79 54 79 58 76 L58 64Z" fill="url(#${id}nk)"/>`);
@@ -435,7 +435,7 @@ export function avatarSvg(customer, opts = {}) {
   if (k.studs) p.push(`<circle cx="${L}" cy="57" r="1.5" fill="#f1f5f9"/><circle cx="${R}" cy="57" r="1.5" fill="#f1f5f9"/>`);
   // face
   p.push(`<path d="${face}" fill="${SK}"/>`);
-  if (k.glam) p.push(`<path d="M${L + 1} 52 C${L + 3} 62 44 70 46 72" stroke="${shade(sk, -0.25)}" stroke-width="3" fill="none" opacity=".35"/><path d="M${R - 1} 52 C${R - 3} 62 56 70 54 72" stroke="${shade(sk, -0.25)}" stroke-width="3" fill="none" opacity=".35"/>`);
+  if (k.glam) p.push(`<path d="M${L + 1} 52 C${L + 3} 62 44 70 46 72" stroke="${shade(sk, -0.2)}" stroke-width="4" fill="none" opacity=".16" stroke-linecap="round"/><path d="M${R - 1} 52 C${R - 3} 62 56 70 54 72" stroke="${shade(sk, -0.2)}" stroke-width="4" fill="none" opacity=".16" stroke-linecap="round"/>`);
   if (k.fat) p.push(`<path d="M38 74 C44 82 56 82 62 74" stroke="${shade(sk, -0.25)}" stroke-width="1.6" fill="none"/>`);
   if (k.stubble) p.push(`<path d="M${L + 3} 58 C${L + 6} ${jawY + 2} ${R - 6} ${jawY + 2} ${R - 3} 58 C${R - 6} 68 ${L + 6} 68 ${L + 3} 58Z" fill="${shade(hc, -0.2)}" opacity=".28"/>`);
   if (k.beard) p.push(`<path d="M${L + 1} 54 C${L + 2} 72 40 ${jawY + 3} 50 ${jawY + 3} C60 ${jawY + 3} ${R - 2} 72 ${R - 1} 54 C${R - 4} 64 58 67 50 67 C42 67 ${L + 4} 64 ${L + 1} 54Z" fill="${HR}"/>`);
@@ -448,7 +448,7 @@ export function avatarSvg(customer, opts = {}) {
 
   // brows
   const bc = ['#e8e8e8', '#cfcfcf', '#bdbdbd', '#d1d5db'].includes(hc) ? '#9ca3af' : shade(hc, -0.25);
-  if (k.glam) p.push(`<path d="M35 45 Q39 39.5 46.5 42.2 Q40 41.8 35 45Z M65 45 Q61 39.5 53.5 42.2 Q60 41.8 65 45Z" fill="${bc}" stroke="${bc}" stroke-width="1.3" stroke-linejoin="round"/>`);
+  if (k.glam) p.push(`<path d="M35 45 Q39 39.5 46.5 42.2 Q40 41.8 35 45Z M65 45 Q61 39.5 53.5 42.2 Q60 41.8 65 45Z" fill="${bc}" stroke="${bc}" stroke-width=".6" stroke-linejoin="round"/>`);
   else if (k.fem) p.push(`<path d="M37 45.5 Q41 42 46.5 44 Q42 43.5 37 45.5Z M63 45.5 Q59 42 53.5 44 Q58 43.5 63 45.5Z" fill="${bc}" stroke="${bc}" stroke-width="1.2" stroke-linejoin="round"/>`);
   else p.push(`<path d="M36.5 45 Q41 42.5 46.5 44.2 L46.3 45.6 Q41 44.4 36.8 46.4Z M63.5 45 Q59 42.5 53.5 44.2 L53.7 45.6 Q59 44.4 63.2 46.4Z" fill="${bc}"/>`);
 
@@ -460,12 +460,12 @@ export function avatarSvg(customer, opts = {}) {
     const ir = k.bigEyes ? 3 : k.glam ? 2.9 : 2.5;
     let out = `<path d="${shape}" fill="#fff"/>`;
     out += `<clipPath id="${id}e${flip ? 1 : 0}"><path d="${shape}"/></clipPath><g clip-path="url(#${id}e${flip ? 1 : 0})"><circle cx="${x}" cy="${ey - 0.2}" r="${ir}" fill="${k.eye}"/><circle cx="${x}" cy="${ey - 0.2}" r="${ir * 0.5}" fill="#111"/><circle cx="${x + 0.9}" cy="${ey - 1.3}" r="${ir * 0.32}" fill="#fff"/></g>`;
-    out += `<path d="M${x - ew} ${ey} Q${x} ${ey - eh * 1.3} ${x + ew} ${ey}" stroke="#2b1a12" stroke-width="${k.glam ? 1.5 : 1}" fill="none"/>`;
+    out += `<path d="M${x - ew} ${ey} Q${x} ${ey - eh * 1.3} ${x + ew} ${ey}" stroke="#2b1a12" stroke-width="${k.glam ? 1 : 0.8}" fill="none" opacity=".9"/>`;
     if (k.glam) {
       const o = x + s * ew; // outer corner
       out = `<path d="M${x - ew} ${ey - 1.2} Q${x} ${ey - eh * 2.3} ${x + ew} ${ey - 1.2} Q${x} ${ey - eh * 1.2} ${x - ew} ${ey - 1.2}Z" fill="#b45cf6" opacity=".35"/>` + out;
-      out += `<path d="M${x - s * ew} ${ey} Q${x} ${ey - eh * 1.4} ${o} ${ey - 0.4} L${o + s * 3.8} ${ey - 3.2} L${o} ${ey + 0.6}" stroke="#0a0a0a" stroke-width="1.6" fill="#0a0a0a" stroke-linejoin="round"/>`;
-      out += [0.1, 0.4, 0.7].map((t) => { const lx = x + s * ew * (t * 1.1); return `<path d="M${lx} ${ey - eh * 1.05} l${s * (0.8 + t * 1.6)} -${2.6 - t * 0.6}" stroke="#0a0a0a" stroke-width="1" stroke-linecap="round"/>`; }).join('');
+      out += `<path d="M${x - s * ew} ${ey} Q${x} ${ey - eh * 1.4} ${o} ${ey - 0.4} L${o + s * 3.8} ${ey - 3.2} L${o} ${ey + 0.6}" stroke="#1a1010" stroke-width="1" fill="#1a1010" stroke-linejoin="round"/>`;
+      out += [0.1, 0.4, 0.7].map((t) => { const lx = x + s * ew * (t * 1.1); return `<path d="M${lx} ${ey - eh * 1.05} l${s * (0.8 + t * 1.6)} -${2.4 - t * 0.6}" stroke="#1a1010" stroke-width=".75" stroke-linecap="round"/>`; }).join('');
     }
     else if (k.lashes) out += `<path d="M${x - 2} ${ey - 2.8} l-0.5 -1.8 M${x + 2} ${ey - 2.8} l0.5 -1.8" stroke="#111" stroke-width=".8"/>`;
     return out;
@@ -482,13 +482,16 @@ export function avatarSvg(customer, opts = {}) {
   if (k.beautyMark) p.push(`<circle cx="${R - 9}" cy="66" r=".9" fill="#3b2314"/>`);
 
   // nose
-  if (k.fem) p.push(`<path d="M51 55 C52 58 51.5 59.6 49.8 59.8 M47.8 59.4 Q49 60.4 49.8 59.8" stroke="${shade(sk, -0.28)}" stroke-width="1" fill="none" stroke-linecap="round" opacity=".7"/>`);
-  else p.push(`<path d="M50.5 50 C51 55 52.5 58 51.5 60 C50.5 61 48.5 60.8 47.5 60" stroke="${shade(sk, -0.3)}" stroke-width="1.1" fill="none" stroke-linecap="round" opacity=".75"/>`);
+  if (k.fem) p.push(`<path d="M51 55 C52 58 51.5 59.6 49.8 59.8 M47.8 59.4 Q49 60.4 49.8 59.8" stroke="${shade(sk, -0.25)}" stroke-width=".9" fill="none" stroke-linecap="round" opacity=".55"/>`);
+  else p.push(`<path d="M50.5 50 C51 55 52.5 58 51.5 60 C50.5 61 48.5 60.8 47.5 60" stroke="${shade(sk, -0.28)}" stroke-width="1" fill="none" stroke-linecap="round" opacity=".6"/>`);
   if (k.glam) p.push('<path d="M49.5 52 L49.8 57" stroke="#fff" stroke-width="1" opacity=".35"/>');
 
   // mouth
   if (k.mustache) p.push(`<path d="M41 64 C44 60.5 48 61.5 50 63 C52 61.5 56 60.5 59 64 C55 65.5 52 64.5 50 64.2 C48 64.5 45 65.5 41 64Z" fill="${HR}"/>`);
-  if (k.lips) {
+  if (k.lips && k.glam) {
+    // full, overlined, glossy lips
+    p.push(`<path d="M41.5 66.2 C43.5 62.2 47 61.6 50 63.6 C53 61.6 56.5 62.2 58.5 66.2 C55 67.2 45 67.2 41.5 66.2Z" fill="url(#${id}lp)"/><path d="M41.5 66.2 C43 73.2 57 73.2 58.5 66.2 C55 67.2 45 67.2 41.5 66.2Z" fill="url(#${id}lp)"/><ellipse cx="50" cy="69.6" rx="4.4" ry="1.3" fill="#fff" opacity=".5"/><path d="M45.5 63.4 Q47.5 62.8 49 63.8" stroke="#fff" stroke-width=".7" opacity=".45" fill="none" stroke-linecap="round"/><path d="M41.5 66.2 C45 67.1 55 67.1 58.5 66.2" stroke="#6d0a31" stroke-width=".6" fill="none" opacity=".8"/>`);
+  } else if (k.lips) {
     p.push(`<path d="M43 66 C45.5 63.2 48 63.4 50 64.6 C52 63.4 54.5 63.2 57 66 C54 66.8 46 66.8 43 66Z" fill="url(#${id}lp)"/><path d="M43 66 C45 71 55 71 57 66 C54 66.8 46 66.8 43 66Z" fill="url(#${id}lp)"/><path d="M46.5 68.3 Q50 69.6 53.5 68.3" stroke="#fff" stroke-width="1" opacity=".55" fill="none" stroke-linecap="round"/><path d="M43 66 C46 66.9 54 66.9 57 66" stroke="#7a0d38" stroke-width=".7" fill="none"/>`);
   } else if (k.smile > 0.55) {
     p.push(`<path d="M43.5 65 C46 70 54 70 56.5 65 C53 66.2 47 66.2 43.5 65Z" fill="#7f1d1d"/><path d="M45 65.4 C48 66.4 52 66.4 55 65.4 L54.4 66.8 C51 67.4 49 67.4 45.6 66.8Z" fill="#fff"/>`);

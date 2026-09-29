@@ -5,6 +5,9 @@ import {
   SKILLS, levelInfo, analyze, pickChallenge, windowOn, freeMinutesPerWeek,
 } from './generator.js';
 import { SHOP, ITEMS, TROPHIES, TROPHY_BONUS, orderCoins, DEFAULT_PROFILE, carSvg } from './shop.js';
+import {
+  ensureAudioGraph, resumeAudio, createVisualizer, startRecording, stopRecording, isRecording,
+} from './visualizer.js';
 import { CUSTOMERS, CUSTOMER_BY_ID, ARCHETYPES, avatarSvg, vipAvatar, VIP_LINES } from './customers.js';
 import { cloud } from './cloud.js';
 import {
@@ -1056,6 +1059,7 @@ async function play(orderId, subId) {
   const url = URL.createObjectURL(blob);
   state.playing = { orderId, subId, url };
   audio.src = url;
+  resumeAudio();
   try { await audio.play(); } catch (e) { console.warn(e); }
 
   if ('mediaSession' in navigator) {
@@ -1079,7 +1083,7 @@ function renderMiniPlayer() {
   if (!s) { mp.hidden = true; return; }
   mp.hidden = false;
   mp.innerHTML = `
-    <button class="mp-art" style="background:${gradient(o.genre)}" data-action="open-order" data-id="${o.id}">${ORDER_TYPES[o.type].icon}</button>
+    <button class="mp-art" style="background:${gradient(o.genre)}" data-action="open-viz" aria-label="Visualizer">✨</button>
     <button class="mp-text" style="text-align:left" data-action="open-order" data-id="${o.id}">
       <div class="mp-title">${esc(orderTitle(o))}</div>
       <div class="mp-sub">v${s.version} · ${esc(o.genre)}</div>
@@ -1118,6 +1122,7 @@ audio.addEventListener('timeupdate', () => {
   }
 });
 ['play', 'pause', 'ended'].forEach((ev) => audio.addEventListener(ev, () => {
+  renderVizUi();
   render();
   if (state.sheet) renderSheet();
 }));
@@ -1130,6 +1135,82 @@ document.addEventListener('click', (e) => {
   const r = bar.getBoundingClientRect();
   audio.currentTime = ((e.clientX - r.left) / r.width) * audio.duration;
 }, true);
+
+// ------------------------------------------------------------ visualizer --
+
+let viz = null;
+function openViz() {
+  const an = ensureAudioGraph(audio); // needs the tap (user gesture) to start Web Audio
+  if (!an) return toast('Visualizer wird hier nicht unterstützt.');
+  $('#viz').hidden = false;
+  viz ||= createVisualizer($('#vizCanvas'));
+  viz.start(an);
+  state.vizOpen = true;
+  renderVizUi();
+}
+function closeViz() {
+  if (isRecording()) stopRecording();
+  viz?.stop();
+  $('#viz').hidden = true;
+  state.vizOpen = false;
+}
+function renderVizUi() {
+  if (!state.vizOpen) return;
+  const p = state.playing;
+  const o = p && state.orders.find((x) => x.id === p.orderId);
+  const s = o?.submissions.find((x) => x.id === p.subId);
+  $('#vizUi').innerHTML = `
+    <div class="viz-top">
+      <button class="viz-btn glass" data-action="close-viz" aria-label="Schließen">⌄</button>
+      <button class="viz-chip glass" data-action="viz-palette">🎨 ${esc(viz.paletteName)}</button>
+    </div>
+    <div class="viz-panel glass">
+      <div class="mp-title">${esc(o ? orderTitle(o) : 'Nichts ausgewählt')}</div>
+      <div class="mp-sub">${s ? `v${s.version} · ${esc(o.genre)}` : 'Spiel einen Track in der Bibliothek ab'}</div>
+      <input id="vizSeek" class="viz-seek" type="range" min="0" max="1000" value="${audio.duration ? Math.round((audio.currentTime / audio.duration) * 1000) : 0}" aria-label="Position" />
+      <div class="viz-controls">
+        <button class="viz-rec ${isRecording() ? 'on' : ''}" data-action="viz-rec">${isRecording() ? '⏹ Stopp' : '⏺ Aufnehmen'}</button>
+        ${s ? `<button class="mp-btn big" data-action="play" data-order="${o.id}" data-sub="${s.id}" aria-label="Play/Pause">${audio.paused ? ICON.play : ICON.pause}</button>` : ''}
+        <span style="width:96px"></span>
+      </div>
+    </div>`;
+}
+
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'vizSeek' && audio.duration) audio.currentTime = (e.target.value / 1000) * audio.duration;
+});
+audio.addEventListener('timeupdate', () => {
+  const el = $('#vizSeek');
+  if (el && audio.duration && document.activeElement !== el) el.value = Math.round((audio.currentTime / audio.duration) * 1000);
+});
+
+// Record the visualizer (+ audio) → video you can post or attach to a video order.
+async function toggleRecording() {
+  if (isRecording()) { stopRecording(); return; }
+  const p = state.playing;
+  const o = p && state.orders.find((x) => x.id === p.orderId);
+  if (!o) return toast('Erst einen Track abspielen.');
+  let done;
+  try { done = startRecording($('#vizCanvas')); } catch (e) { return toast(e.message); }
+  if (audio.paused) audio.play();
+  toast('⏺ Aufnahme läuft – nochmal tippen zum Stoppen');
+  renderVizUi();
+  const blob = await done;
+  renderVizUi();
+  const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
+  const file = new File([blob], `visualizer-${orderTitle(o).replace(/[äöüÄÖÜß]/g, (c) => ({ ä: 'ae', ö: 'oe', ü: 'ue', Ä: 'Ae', Ö: 'Oe', Ü: 'Ue', ß: 'ss' }[c])).replace(/[^\w]+/g, '-').slice(0, 40)}.${ext}`, { type: blob.type });
+  // Belongs to an open video order for this song? Offer to attach it.
+  const vo = state.orders.find((x) => x.type === 'video' && !x.deleted && x.status !== 'delivered' && x.sourceOrderId === o.id);
+  if (vo && confirm('Video als neue Version zum Video-Auftrag hinzufügen?')) {
+    await addFileToOrder(vo, file);
+    return;
+  }
+  if (isNative) { try { await shareBlob(file, file.name, 'Visualizer'); } catch {} return; }
+  if (navigator.canShare?.({ files: [file] })) { try { await navigator.share({ files: [file] }); } catch {} return; }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(file); a.download = file.name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
 
 // ------------------------------------------------------------- uploads --
 
@@ -1163,6 +1244,10 @@ async function upload(orderId) {
     : 'audio/*,.mp3,.wav,.m4a,.aac,.flac,.aif,.aiff,.ogg';
   const file = await pickFile(accept);
   if (!file) return;
+  await addFileToOrder(o, file);
+}
+
+async function addFileToOrder(o, file) {
   const fileId = uid();
   await db.putFile(fileId, file);
   const media = isAudioFile({ mime: file.type, name: file.name }) || isVideoFile({ mime: file.type, name: file.name });
@@ -1308,6 +1393,10 @@ const actions = {
   },
 
   play: (el) => play(el.dataset.order, el.dataset.sub),
+  'open-viz': () => openViz(),
+  'close-viz': () => closeViz(),
+  'viz-palette': () => { toast(`🎨 ${viz.nextPalette()}`); renderVizUi(); },
+  'viz-rec': () => toggleRecording(),
 
   async 'play-video'(el) {
     const o = state.orders.find((x) => x.id === el.dataset.order);
@@ -1610,7 +1699,8 @@ function setupNative() {
   });
   // Android back button: close sheet → back to first tab → minimise.
   App.addListener('backButton', () => {
-    if (state.sheet) closeSheet();
+    if (state.vizOpen) closeViz();
+    else if (state.sheet) closeSheet();
     else if (state.tab !== 'orders') { state.tab = 'orders'; render(); }
     else App.minimizeApp();
   });

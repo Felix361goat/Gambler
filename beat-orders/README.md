@@ -53,6 +53,7 @@ Handy per USB anschließen (Entwickleroptionen + **USB-Debugging** an) und in An
 | **👑 Legendär** | Die **BBL Chaya als VIP-Managerin**: 20.000 🪙 **und** 150 Abgaben, also rund 3 Jahre konstant dranbleiben. Danach hypt sie dich im Profil und auf der Startseite. |
 | **Bibliothek** | Alle Uploads nach Monat gruppiert, filterbar nach Art und Genre, mit Suche und Stats (abgegeben, Pünktlichkeit, Uploads). |
 | **Player** | Mini-Player im Apple-Music-Stil, Steuerung auf dem Sperrbildschirm (Media Session), Teilen über das iOS-Share-Sheet. |
+| **✨ Visualizer** | Wie der Visualizer in FL Studio: Tipp im Mini-Player aufs ✨, dann läuft Vollbild **„Alien Garden“**. Eine biolumineszente Blüte reagiert auf das Spektrum, Ranken wachsen mit den Mitten, Sporen explodieren auf jedem Kick, Glühwürmchen reagieren auf die Höhen. 5 Farbwelten (Alien, Aurora, Tiefsee, Dschungel, Lava-Orchidee). **⏺ Aufnehmen** speichert Bild und Ton als Video, das du teilen oder direkt an den Video-Auftrag des Songs hängen kannst. |
 | **Handy** | Liquid-Glass-Design, Dark Mode, eigenes App-Icon, Vollbild, Mitteilungen bei neuen Aufträgen (Android-App: auch bei geschlossener App) plus Erinnerung am Abgabetag, Android-Zurück-Taste, offline nutzbar. |
 | **Speicher** | Lokal auf dem Gerät (IndexedDB) **plus optional in der Cloud** (Supabase), damit nichts verloren geht und alles auf mehreren Geräten da ist. |
 | **Backup** | Export/Import als JSON. |
@@ -111,6 +112,7 @@ beat-orders/
 │       ├── app.js          UI, Aktionen, Player, Uploads
 │       ├── generator.js    Auftrags-Generator: Genres, Challenges, Stärken, Zeitplan
 │       ├── customers.js    103 Kunden: Typen, Schreibstile, Antworten, Avatar-Zeichner
+│       ├── visualizer.js   Audio-reaktiver Visualizer + Video-Aufnahme
 │       ├── shop.js         Coins, Shop (Rahmen, Banner, Studio, Garage, Legendär), Trophäen
 │       ├── native.js       Android-Brücke: Mitteilungen, Teilen, Zurück-Taste
 │       ├── db.js           Lokale Datenbank (IndexedDB)
