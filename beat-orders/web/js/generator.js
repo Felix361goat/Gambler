@@ -380,10 +380,11 @@ export function generateOrder(settings, { type, at, history = [], genre: forcedG
   const freshGenres = genreNames.filter((g) => !recentGenres.includes(g));
   // Your strong genres (≥ 8 Ø) come up a bit more, declined ones less.
   const { genres: genreStats } = analyze(history);
-  const genre = forcedGenre && GENRES[forcedGenre] ? forcedGenre : theirs.length && Math.random() < 0.4
-    ? weightedPick(theirs, (g) => gweight(gw, g))
+  // Your taste decides; the customer's favourites only tilt it (×4), so a
+  // rare genre stays rare even if this customer loves it.
+  const genre = forcedGenre && GENRES[forcedGenre] ? forcedGenre
     : weightedPick(freshGenres.length ? freshGenres : genreNames,
-      (g) => gweight(gw, g) * ((genreStats[g]?.avg ?? 0) >= 8 ? 1.3 : 1) / (1 + (declined.genres[g] || 0)));
+      (g) => gweight(gw, g) * (theirs.includes(g) ? 4 : 1) * ((genreStats[g]?.avg ?? 0) >= 8 ? 1.3 : 1) / (1 + (declined.genres[g] || 0)));
   const g = GENRES[genre];
   const tw = Object.fromEntries(Object.entries(settings.types || DEFAULT_SETTINGS.types)
     .map(([k, w]) => [k, w / (1 + 0.5 * (declined.types[k] || 0))]));
