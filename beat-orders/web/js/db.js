@@ -8,6 +8,9 @@ const DB_VERSION = 1;
 
 let dbPromise;
 
+// Everything besides orders/files that is "your data" (synced + backed up).
+export const STATE_KEYS = ['settings', 'profile', 'career', 'sessions', 'recapSeen', 'welcomed'];
+
 function open() {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
@@ -46,8 +49,19 @@ export const db = {
   putFile: (id, blob) => tx('files', 'readwrite', (s) => s.put({ id, blob })),
   deleteFile: (id) => tx('files', 'readwrite', (s) => s.delete(id)),
 
+  allFiles: () => tx('files', 'readonly', (s) => s.getAll()),
+
   get: (key) => tx('kv', 'readonly', (s) => s.get(key)),
-  set: (key, value) => tx('kv', 'readwrite', (s) => s.put(value, key)),
+  // Changing profile/career/settings/... marks the "state" as newer for cloud sync.
+  async set(key, value, { touch = true } = {}) {
+    await tx('kv', 'readwrite', (s) => s.put(value, key));
+    if (touch && STATE_KEYS.includes(key)) await tx('kv', 'readwrite', (s) => s.put(Date.now(), 'stateUpdatedAt'));
+  },
+  async allKv() {
+    const keys = await tx('kv', 'readonly', (s) => s.getAllKeys());
+    const vals = await tx('kv', 'readonly', (s) => s.getAll());
+    return Object.fromEntries(keys.map((k, i) => [k, vals[i]]));
+  },
 
   async clearAll() {
     await tx('orders', 'readwrite', (s) => s.clear());

@@ -149,7 +149,8 @@ export function orderCoins(o, threshold) {
   if (r) c += r >= threshold ? 25 : r >= 7 ? 10 : 0;
   if (o.tier === 'expert' && o.accepted) c += 150;
   if (o.tier === 'boss' && o.accepted) c += 1500;
-  if (o.rush && o.deadline && o.deliveredAt <= o.deadline) c *= 2; // ⚡ Eil-Auftrag pünktlich = doppelt
+  if (o.rush && o.deadline && o.deliveredAt <= o.deadline) c *= 2;
+  if (o.tier === 'event') c += 150; // ✨ Special Event // ⚡ Eil-Auftrag pünktlich = doppelt
   return c;
 }
 

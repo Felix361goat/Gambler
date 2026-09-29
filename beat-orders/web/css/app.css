@@ -569,6 +569,11 @@ button.mini-avatar, button.k-item { padding: 0; border: 0; cursor: pointer; }
   repeating-linear-gradient(100deg, rgba(255,255,255,.08) 0 10px, transparent 10px 30px),
   linear-gradient(#2e1065, #7c3aed 60%, #f97316); }
 
+/* Special events */
+.card.tier-event { border: 1px solid rgba(192,132,252,.8); background: linear-gradient(160deg, rgba(168,85,247,.3), rgba(236,72,153,.15) 55%, rgba(0,0,0,0)), var(--glass); }
+.tier-event .tier-badge { color: #e879f9; }
+.tier-banner.tier-event { background: linear-gradient(90deg, #7c3aed, #ec4899, #f59e0b); color: #fff; }
+
 /* Toast */
 .toast {
   position: fixed; left: 50%; transform: translateX(-50%); top: calc(var(--safe-top) + 10px); z-index: 60;

@@ -20,8 +20,8 @@ export const ORDER_TYPES = {
   video:        { label: 'Video / TikTok', short: 'Video', icon: '🎬', days: [5, 8], effort: 3, budget: [0, 0], manualOnly: true },
 };
 
-import { GENRES } from './genres.js';
-export { GENRES };
+import { GENRES, ideaFor, GENRE_RENAMES } from './genres.js';
+export { GENRES, GENRE_RENAMES };
 
 // How often each genre comes up (0 = aus … 4 = sehr oft). Tuned to your taste:
 // UK Afroswing + US sounds a lot, House/Indie ab und zu, Indie Rock selten.
@@ -29,16 +29,17 @@ export const DEFAULT_GENRE_WEIGHTS = {
   // Kern – nach deinen Spotify-Stats (J Hus, JAE5, Kojo Funds, NSG, Skeete, Nines, Tera Kòrá …)
   'UK Afroswing': 4, 'UK Rap': 3, 'Afrobeats': 3, 'Afro-Dancehall': 2, 'UK R&B': 2, 'UK Drill': 2, 'Amapiano': 2,
   // Dancehall-inspiriert + FR/ES (Morad & Co.)
-  'Dancehall': 2, 'Dancehall-Trap': 2, 'Afro-Trap (FR)': 2, 'Maghreb-Urban': 2, 'French Drill': 1, 'Reggaeton': 1,
+  'UK Sample-Rap': 2, 'Dancehall': 2, 'Dancehall-Trap': 2, 'Afro-Trap (FR)': 2, 'Maghreb-Urban': 2, 'French Drill': 1, 'Reggaeton': 1,
   // Amerikanisch – die ganze Trap-Familie & Co., ab und zu
-  'Detroit': 2, 'Jerk': 2, 'Trap': 1, 'Dark Trap': 1, 'Melodic Trap': 1, 'Rage': 1, 'Plugg': 1, 'Pluggnb': 1, 'Trap Soul': 1,
-  'Memphis': 1, 'Drill': 1, 'NY Drill': 1, 'Sample Drill': 1, 'Jersey Club': 1, 'West Coast': 1, 'Ratchet': 1, 'Bay Area': 1, 'Boom Bap': 1,
+  'R&B Trap': 2, 'Alternative R&B': 1, '90s R&B': 1, 'Sexy Drill': 1,
+  'Detroit': 2, 'Jerk': 2, 'Atlanta Trap': 1, 'Dark Trap': 1, 'Melodic Trap': 1, 'Rage': 1, 'Plugg': 1, 'Pluggnb': 1, 'Trap Soul': 1,
+  'Memphis': 1, 'Chicago Drill': 1, 'NY Drill': 1, 'Sample Drill': 1, 'Jersey Club': 1, 'West Coast': 1, 'Ratchet': 1, 'Bay Area': 1, 'Boom Bap': 1,
   // Rest
-  'R&B': 1, 'Deutschrap': 1, 'UK Garage': 1, 'Grime': 1, 'Lo-Fi': 1, 'Pop': 1, 'Phonk': 1, 'Hyperpop': 1,
+  'Contemporary R&B': 1, 'Deutschrap': 1, 'UK Garage': 1, 'Grime': 1, 'Lo-Fi': 1, 'Pop': 1, 'Phonk': 1, 'Hyperpop': 1,
   // Ganz anders (Calvin Harris & Co.)
   'House': 1, 'Indie House': 1, 'Indie Rock': 1,
 };
-export const TASTE_VERSION = 3; // bump → new genres/defaults are merged in once
+export const TASTE_VERSION = 4; // bump → new genres/defaults are merged in once
 
 export const refsFor = (genre, n = 2) => [...(GENRES[genre]?.refs || [])].sort(() => Math.random() - 0.5).slice(0, n);
 
@@ -411,6 +412,7 @@ export function generateOrder(settings, { type, at, history = [], genre: forcedG
     brief: writeBrief(customer, t, vars),
     challenge: pickChallenge(t, { history }),
     refs: refsFor(genre),
+    idea: ideaFor(genre),
     effort: T.effort,
     budget,
     createdAt: now,
@@ -435,6 +437,36 @@ export function createOwnProject({ title, genre, history = [] }) {
     budget: 0, createdAt: now, deadline: null, status: 'in_progress',
     submissions: [], deliveredAt: null, deliveredSubmissionId: null,
     reply: null, rating: null, updatedAt: now,
+  };
+}
+
+// ---- ✨ Special Events --------------------------------------------------------
+// Rare, one-of-a-kind jobs – the kind of content that stands out online.
+export const EVENTS = [
+  { title: 'Gitarren-Rap', brief: 'Rap/sing über eine Akustik-Gitarre – kein Beat, nur Gitarre und Stimme (wie Souily auf TikTok). Nimm es als Video auf.', genre: 'Indie Rock', effort: 3 },
+  { title: 'Küchen-Beat', brief: 'Bau einen kompletten Beat nur aus Geräuschen aus deiner Küche: Töpfe, Gläser, Besteck, Wasserhahn.', genre: 'UK Afroswing', effort: 4 },
+  { title: 'Wien-Sounds', brief: 'Nimm Straßengeräusche in Wien auf (U-Bahn-Ansage, Bim, Tauben, Stimmen) und bau daraus Drums und Atmosphäre.', genre: 'UK Rap', effort: 4 },
+  { title: 'Genre-Mashup', brief: 'Kreuze zwei Welten: Amapiano-Log-Drum trifft UK-Drill-Drums. Mach, dass es trotzdem funktioniert.', genre: 'Amapiano', effort: 5 },
+  { title: '20-Minuten-Challenge', brief: 'Stell einen Timer auf 20 Minuten und bau einen Beat – filme den Bildschirm dabei (perfekter TikTok-Content).', genre: 'Detroit', effort: 1 },
+  { title: 'Sprachmemo → Beat', brief: 'Summ eine Melodie ins Handy, importiere die Aufnahme und bau den Beat um deine Stimme herum.', genre: 'R&B Trap', effort: 3 },
+  { title: 'Flohmarkt-Sample', brief: 'Such dir eine alte Platte oder ein altes Lied (Flohmarkt, Omas CDs, YouTube-Rarität) und sample es.', genre: 'UK Sample-Rap', effort: 4 },
+  { title: 'Kinderlied-Flip', brief: 'Nimm ein bekanntes Kinderlied und flippe es in einen harten Beat. Lustig UND gut – das geht viral.', genre: 'Jersey Club', effort: 3 },
+  { title: 'Ein-Instrument-Song', brief: 'Ein kompletter Song mit nur EINEM Instrument (plus Stimme). Weniger ist mehr.', genre: 'Alternative R&B', effort: 4 },
+  { title: 'Live-Session', brief: 'Nimm einen Song in einem einzigen Take auf – Beat läuft, du performst, Kamera an. Keine Schnitte.', genre: 'UK Afroswing', effort: 4 },
+];
+
+export function createEventOrder(settings, { history = [], at } = {}) {
+  const now = at ?? Date.now();
+  const done = new Set(history.filter((o) => o.tier === 'event').map((o) => o.title));
+  const pool = EVENTS.filter((e) => !done.has(`✨ ${e.title}`));
+  const ev = pick(pool.length ? pool : EVENTS);
+  return {
+    id: uid(), tier: 'event', client: 'Du', type: 'own', title: `✨ ${ev.title}`, genre: ev.genre,
+    brief: `✨ SPECIAL EVENT\n${ev.brief}\n\nDas ist die Art Content, die online auffällt – filme es mit!`,
+    bpm: null, key: null, mood: 'einzigartig', instruments: [], refs: refsFor(ev.genre), idea: null,
+    challenge: pickChallenge('own', { history }), effort: ev.effort, budget: 0,
+    createdAt: now, deadline: deadlineFor(ev.effort, now, settings.week),
+    status: 'new', submissions: [], deliveredAt: null, deliveredSubmissionId: null, reply: null, rating: null, updatedAt: now,
   };
 }
 

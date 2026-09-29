@@ -5,7 +5,7 @@
 // Local IndexedDB stays the source the UI reads from; sync() merges both
 // sides with "newest updatedAt wins".
 
-import { db } from './db.js';
+import { db, STATE_KEYS } from './db.js';
 
 const MAX_UPLOAD = 50 * 1024 * 1024;
 
@@ -71,7 +71,9 @@ export const cloud = {
 
     const { data: rows, error } = await c.from('orders').select('id, data, updated_at');
     if (error) throw error;
-    const remote = new Map(rows.map((r) => [r.id, r.data]));
+    // Special row "__state" = profile, career, sessions, settings …
+    const stateRow = rows.find((r) => r.id === '__state');
+    const remote = new Map(rows.filter((r) => r.id !== '__state').map((r) => [r.id, r.data]));
     const local = new Map((await db.allOrders()).map((o) => [o.id, o]));
     let pulled = 0, pushed = 0, uploaded = 0, skipped = 0;
 
@@ -117,8 +119,23 @@ export const cloud = {
       }
     }
 
+    // State: newest side wins.
+    let stateChanged = false;
+    const localAt = (await db.get('stateUpdatedAt')) || 0;
+    const remoteAt = stateRow?.data?.updatedAt || 0;
+    if (remoteAt > localAt) {
+      for (const k of STATE_KEYS) if (k in stateRow.data.kv) await db.set(k, stateRow.data.kv[k], { touch: false });
+      await db.set('stateUpdatedAt', remoteAt, { touch: false });
+      stateChanged = true;
+    } else if (localAt > remoteAt) {
+      const kv = {};
+      for (const k of STATE_KEYS) kv[k] = await db.get(k);
+      const { error: e } = await c.from('orders').upsert({ id: '__state', user_id: user.id, data: { updatedAt: localAt, kv }, updated_at: new Date(localAt).toISOString() });
+      if (e) throw e;
+    }
+
     await db.set('lastSync', Date.now());
-    return { pulled, pushed, uploaded, skipped };
+    return { pulled, pushed, uploaded, skipped, stateChanged };
   },
 
   // Fetch a file that only exists in the cloud and cache it locally.

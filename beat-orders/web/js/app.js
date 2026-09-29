@@ -1,9 +1,10 @@
-import { db, requestPersistence } from './db.js';
+import { db, requestPersistence, STATE_KEYS } from './db.js';
 import {
   ORDER_TYPES, GENRES, DEFAULT_SETTINGS, generateOrder, createOwnProject,
   clientReply, nextArrival, uid, createVideoOrder, createVocalOrder, rerollConcept, reviewOpensAt,
   SKILLS, levelInfo, DEFAULT_GENRE_WEIGHTS, GENRE_LABELS, TASTE_VERSION, analyze, pickChallenge, windowOn, freeMinutesPerWeek,
   createExpertOrder, createBossOrder, verdictReply, isFan, EXPERT_MIN, vocalBrief, songPrompt,
+  createEventOrder, GENRE_RENAMES,
 } from './generator.js';
 import { titleFor, tipOfDay, questsForWeek } from './motivation.js';
 import { FAMILIES } from './genres.js';
@@ -146,6 +147,7 @@ function bossInfo() {
 const TIER = {
   expert: { badge: '🎖️ EXPERTE', label: 'Experte' },
   boss: { badge: '💀 ULTRA-BOSS', label: 'Ultra-Boss' },
+  event: { badge: '✨ SPECIAL EVENT', label: 'Special Event' },
 };
 
 // ---- week stats & quests ---------------------------------------------------
@@ -345,6 +347,7 @@ async function runSync(quiet) {
   try {
     const r = await cloud.sync();
     state.orders = await db.allOrders();
+    if (r.stateChanged) await loadState();
     if (!quiet) toast(`Synchronisiert ☁️ ↓${r.pulled} ↑${r.pushed}${r.uploaded ? ` · ${r.uploaded} Dateien` : ''}${r.skipped ? ` · ${r.skipped} nur lokal (zu groß)` : ''}`);
     render();
     if (state.sheet) renderSheet();
@@ -365,21 +368,26 @@ async function runSync(quiet) {
 const activeCount = () => state.orders.filter((o) => isActive(o) && !selfMade(o)).length;
 
 async function newPending(from = Date.now()) {
-  const opts = { at: nextArrival(state.settings, from), ...genOpts() };
+  const stage = careerStage();
+  const types = { ...state.settings.types };
+  for (const [k, f] of Object.entries(stage.boost)) if (types[k]) types[k] *= f;
+  const opts = { at: nextArrival(state.settings, from), ...genOpts(), settings: { ...state.settings, types } };
   const live = state.orders.filter((o) => !o.deleted);
   const lastBoss = live.filter((o) => o.tier === 'boss').reduce((m, o) => Math.max(m, o.createdAt), 0);
   let p;
   if (bossInfo().ok && !live.some((o) => o.tier === 'boss' && isActive(o)) && Date.now() - lastBoss > 60 * DAY && Math.random() < 0.25) {
     p = createBossOrder(state.settings, opts);
-  } else if (expertsUnlocked() && !live.some((o) => o.tier === 'expert' && isActive(o)) && Math.random() < 0.3) {
+  } else if (eventsUnlocked() && !live.some((o) => o.tier === 'event' && isActive(o)) && Math.random() < stage.event) {
+    p = createEventOrder(state.settings, opts);
+  } else if (expertsUnlocked() && !live.some((o) => o.tier === 'expert' && isActive(o)) && Math.random() < stage.expert) {
     p = createExpertOrder(state.settings, opts);
   } else if (!live.some((o) => o.rush && isActive(o)) && Math.random() < 0.08) {
     // ⚡ Eil-Auftrag: small job, short deadline, double reward.
-    p = generateOrder(state.settings, { ...opts, type: pick(['hook', 'vocal_chain']) });
+    p = generateOrder(opts.settings, { ...opts, type: pick(['hook', 'vocal_chain']) });
     const d = new Date(p.createdAt); d.setDate(d.getDate() + 2); d.setHours(23, 59, 0, 0);
     Object.assign(p, { rush: true, deadline: d.getTime(), budget: Math.round(p.budget * 1.5), brief: `⚡ EILT!!! Bis übermorgen bitte.\n${p.brief}` });
   } else {
-    p = generateOrder(state.settings, opts);
+    p = generateOrder(opts.settings, opts);
   }
   await db.set('pendingOrder', p);
   return p;
@@ -540,7 +548,7 @@ function orderCard(o) {
     : reviewWaiting(o) ? '<span class="pill">🔒 Morgen</span>'
     : o.review?.rating ? `<span class="pill ${o.review.rating >= thr ? 'green' : ''}">${o.review.rating}/10${o.review.rating >= thr ? ` ${UNLOCK[unlockFor(o)].icon}` : ''}</span>` : '';
   return `<button class="card glass ${o.tier ? `tier-${o.tier}` : ''}" data-action="open-order" data-id="${o.id}" style="display:block;width:100%;text-align:left">
-    ${o.tier ? `<div class="tier-badge">${TIER[o.tier].badge} · mind. ${o.minRating}/10</div>` : ''}
+    ${o.tier ? `<div class="tier-badge">${TIER[o.tier].badge}${o.minRating ? ` · mind. ${o.minRating}/10` : ' · +150 🪙'}</div>` : ''}
     <div class="order-top">
       <div class="avatar ${o.tier ? `ring-${o.tier}` : ''}" style="background:${gradient(o.type === 'video' ? o.title : o.client)}">${selfMade(o) ? T.icon : customerOf(o) ? avatarSvg(customerOf(o)) : esc(initials(o.client))}</div>
       <div class="order-meta">
@@ -984,6 +992,24 @@ const careerLatest = (id) => { const h = state.career.stats[id] || []; return h.
 function careerDue() {
   return Object.keys(PLATFORMS).some((id) => { const l = careerLatest(id); return !l || Date.now() - l.t > 30 * DAY; });
 }
+// The app adapts to where you are: build → release → grow → artist.
+function careerStage() {
+  const sp = careerLatest('spotify')?.v || 0;
+  const rel = careerLatest('releases')?.v || 0;
+  const social = Math.max(careerLatest('tiktok')?.v || 0, careerLatest('instagram')?.v || 0, careerLatest('youtube')?.v || 0);
+  if (sp >= 100000) return { id: 'artist', text: '👑 Artist-Phase: Release-Qualität zählt – Experten & Boss öfter, Songs statt Skizzen.', boost: { full_song: 2, hook: 1.5 }, event: 0.08, expert: 0.45 };
+  if (sp >= 1000 || social >= 1000) return { id: 'grow', text: '📈 Wachstums-Phase: Content zählt – mehr Songs, Videos und Special Events.', boost: { full_song: 2, hook: 1.5 }, event: social >= 10000 ? 0.08 : 0.06, expert: 0.3 };
+  if (rel >= 1) return { id: 'release', text: '🎤 Release-Phase: Katalog aufbauen – mehr Songs und Hooks, jeder Beat ab 8/10 wird ein Song.', boost: { full_song: 2, hook: 1.5 }, event: 0.04, expert: 0.3 };
+  return { id: 'build', text: '🛠️ Aufbau-Phase: Skills & Beats sammeln, bis du bereit für den ersten Release bist. Zahlen auf 0 sind völlig okay.', boost: { instrumental: 1.3 }, event: 0.03, expert: 0.3 };
+}
+// Special events unlock after ~6 weeks of use, or once you have some reach.
+function eventsUnlocked() {
+  const live = state.orders.filter((o) => !o.deleted);
+  const first = live.reduce((m, o) => Math.min(m, o.createdAt), Date.now());
+  const social = Math.max(careerLatest('tiktok')?.v || 0, careerLatest('instagram')?.v || 0);
+  return Date.now() - first > 42 * DAY || social >= 1000;
+}
+
 function sparkline(hist, color) {
   if (!hist || hist.length < 2) return '';
   const vals = hist.map((x) => x.v), max = Math.max(...vals), min = Math.min(...vals);
@@ -1002,6 +1028,7 @@ function renderCareer() {
       <div class="ch-title">🎤 ${esc(title)}</div>
       <div class="muted">${sp ? `${fmtNum(sp)} monatliche Hörer auf Spotify` : 'Trag deine ersten Zahlen ein – auch 0 ist ein Start.'}</div>
     </div>
+    <div class="tip glass" style="margin-top:0"><span>🧭</span><div><b>Fokus gerade</b>${esc(careerStage().text)}</div></div>
     ${careerDue() ? '<div class="hint glass"><div style="font-size:24px">📈</div><div><b>Monats-Update</b>Trag deine aktuellen Zahlen ein – jeder Meilenstein bringt Coins.</div></div>' : ''}
     ${Object.entries(PLATFORMS).map(([id, P]) => {
       const hist = state.career.stats[id] || [];
@@ -1176,7 +1203,7 @@ function renderSettings() {
 
     <div class="group-title">Daten</div>
     <div class="group glass">
-      <button class="row tap" data-action="export"><span class="label">Backup exportieren (ohne Audio)</span>${ICON.chev}</button>
+      <button class="row tap" data-action="export"><span class="label">💾 Komplett-Backup speichern (inkl. MP3s)</span>${ICON.chev}</button>
       <button class="row tap" data-action="import"><span class="label">Backup importieren</span>${ICON.chev}</button>
       <button class="row tap" data-action="reset"><span class="label" style="color:var(--red)">Alles lokal löschen</span></button>
     </div>
@@ -1292,10 +1319,11 @@ function renderOrderSheet(o) {
   // Odd number of tiles → stretch the last one; instruments always get a full row.
   if (specs.length % 2) specs[specs.length - 1].wide = true;
   if (o.instruments?.length) specs.push(Object.assign([o.tier ? 'Instrumente' : '🎛️ Pflicht-Sounds (Challenge)', o.instruments.join(', ')], { wide: true }));
-  if (o.refs?.length) specs.push(Object.assign(['🎧 Referenz', o.refs.join(', ')], { wide: true }));
+  if (o.idea) specs.push(Object.assign(['🧪 Sample-/Sound-Challenge', o.idea], { wide: true }));
+  if (o.refs?.length) specs.push(Object.assign(['🎧 Referenz (reinhören!)', o.refs.join(', ')], { wide: true }));
 
   return `
-    ${o.tier ? `<div class="tier-banner tier-${o.tier}">${TIER[o.tier].badge} · akzeptiert nur ab ${o.minRating}/10 · längere Deadline</div>` : ''}
+    ${o.tier ? `<div class="tier-banner tier-${o.tier}">${TIER[o.tier].badge}${o.minRating ? ` · akzeptiert nur ab ${o.minRating}/10 · längere Deadline` : ' · selten & einzigartig · +150 🪙'}</div>` : ''}
     <div class="sheet-head">
       <button class="btn plain" data-action="close-sheet">Schließen</button>
       <h2 class="sheet-title">${customerOf(o) ? `<button class="mini-avatar ${o.tier ? `ring-${o.tier}` : ''}" data-action="open-customer" data-id="${esc(o.customerId)}" aria-label="Kunden-Profil">${avatarSvg(customerOf(o))}</button>` : ''}${esc(o.type === 'own' ? 'Projekt' : o.type === 'video' ? 'Video' : o.type === 'vocals' ? 'Vocals' : o.client.split(' – ')[0])}</h2>
@@ -1998,21 +2026,29 @@ const actions = {
     reg ? reg.showNotification('Beat Orders', opts) : new Notification('Beat Orders', opts);
   },
 
+  // Complete backup: orders, MP3s/videos, profile, career, sessions, settings.
   async export() {
-    const data = JSON.stringify({ app: 'beat-orders', version: 1, exportedAt: Date.now(), settings: state.settings, profile: state.profile, orders: state.orders }, null, 2);
-    const file = new File([data], `beat-orders-backup-${new Date().toISOString().slice(0, 10)}.json`, { type: 'application/json' });
+    toast('Backup wird erstellt …');
+    const toB64 = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); r.readAsDataURL(blob); });
+    const files = [];
+    for (const f of await db.allFiles()) files.push({ id: f.id, data: await toB64(f.blob) });
+    const kv = await db.allKv();
+    const keep = Object.fromEntries(Object.entries(kv).filter(([k]) => [...STATE_KEYS, 'pendingOrder', 'nextOrderAt', 'hideInstallHint', 'stateUpdatedAt'].includes(k)));
+    const data = JSON.stringify({ app: 'beat-orders', version: 2, exportedAt: Date.now(), kv: keep, orders: state.orders, files });
+    const file = new File([data], `beat-orders-komplett-${new Date().toISOString().slice(0, 10)}.json`, { type: 'application/json' });
+    toast(`Backup fertig (${fmtSize(file.size)}) – jetzt sicher speichern, z. B. in Google Drive`);
     if (isNative) {
       try { await shareBlob(file, file.name, 'Beat Orders Backup'); } catch (e) { if (!/cancel/i.test(e.message)) toast(e.message); }
       return;
     }
     if (navigator.canShare?.({ files: [file] })) {
-      try { await navigator.share({ files: [file] }); } catch {}
-    } else {
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(file);
-      a.download = file.name;
-      a.click();
+      try { await navigator.share({ files: [file] }); return; } catch {}
     }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(file);
+    a.download = file.name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 20000);
   },
 
   async import() {
@@ -2021,14 +2057,22 @@ const actions = {
     try {
       const data = JSON.parse(await file.text());
       if (data.app !== 'beat-orders') throw new Error('Keine Beat-Orders-Datei');
+      if (data.version >= 2 && !confirm('Komplett-Backup einspielen? Profil, Karriere & Einstellungen werden durch das Backup ersetzt, Aufträge und Dateien zusammengeführt.')) return;
       for (const o of data.orders || []) {
+        if (GENRE_RENAMES[o.genre]) o.genre = GENRE_RENAMES[o.genre];
         const cur = state.orders.find((x) => x.id === o.id);
         if (!cur || (o.updatedAt || 0) > (cur.updatedAt || 0)) await db.putOrder(o);
       }
-      if (data.settings) { state.settings = { ...DEFAULT_SETTINGS, ...data.settings }; await saveSettings(); }
-      if (data.profile) { state.profile = { ...DEFAULT_PROFILE, ...data.profile }; await saveProfile(); }
+      for (const f of data.files || []) await db.putFile(f.id, await (await fetch(f.data)).blob());
+      if (data.kv) for (const [k, v] of Object.entries(data.kv)) await db.set(k, v);
+      // v1 backups (older app versions)
+      if (data.settings) await db.set('settings', { ...DEFAULT_SETTINGS, ...data.settings });
+      if (data.profile) await db.set('profile', { ...DEFAULT_PROFILE, ...data.profile });
       state.orders = await db.allOrders();
-      toast('Backup importiert ✅');
+      await loadState();
+      const pfp = await db.getFile('pfp');
+      if (pfp) state.pfpUrl = URL.createObjectURL(pfp.blob);
+      toast(`Backup importiert ✅ (${(data.files || []).length} Dateien)`);
       render();
       syncSoon();
     } catch (e) {
@@ -2192,13 +2236,30 @@ window.addEventListener('beforeinstallprompt', (e) => {
   if (state.tab === 'orders') render();
 });
 
+// (Re)load everything that isn't an order from the local DB.
+async function loadState() {
+  state.settings = { ...DEFAULT_SETTINGS, ...((await db.get('settings')) || {}) };
+  state.settings.types = { ...DEFAULT_SETTINGS.types, ...state.settings.types };
+  state.profile = { ...DEFAULT_PROFILE, ...((await db.get('profile')) || {}) };
+  state.sessions = (await db.get('sessions')) || [];
+  state.career = { stats: {}, claimed: [], ...((await db.get('career')) || {}) };
+  state.recapSeen = await db.get('recapSeen');
+}
+
 async function boot() {
   requestPersistence();
   state.settings = { ...DEFAULT_SETTINGS, ...((await db.get('settings')) || {}) };
   state.settings.types = { ...DEFAULT_SETTINGS.types, ...state.settings.types };
+  state.orders = await db.allOrders();
+  // v4: more specific genre names ("Trap" → "Atlanta Trap" …) – move saved weights and old orders first.
+  const savedWeights = { ...(state.settings.genreWeights || {}) };
+  for (const [from, to] of Object.entries(GENRE_RENAMES)) {
+    if (from in savedWeights) { savedWeights[to] ??= savedWeights[from]; delete savedWeights[from]; }
+  }
+  for (const o of state.orders) if (GENRE_RENAMES[o.genre]) { o.genre = GENRE_RENAMES[o.genre]; await db.putOrder(o); }
   // New genres get their defaults; old on/off genre list is folded in once.
   const oldGenres = state.settings.genres;
-  state.settings.genreWeights = { ...DEFAULT_GENRE_WEIGHTS, ...(state.settings.genreWeights || {}) };
+  state.settings.genreWeights = { ...DEFAULT_GENRE_WEIGHTS, ...savedWeights };
   // New taste profile (from your Spotify stats) → apply the new defaults once.
   if ((state.settings.tasteVersion || 0) < 2) state.settings.genreWeights = { ...DEFAULT_GENRE_WEIGHTS };
   if ((state.settings.tasteVersion || 0) < TASTE_VERSION) {

@@ -54,12 +54,17 @@ export const THEME_BANK = {
 // Which themes suit which sound (rough, not strict).
 const GENRE_THEMES = {
   'UK Afroswing': ['liebe', 'party', 'geld'], 'Afrobeats': ['liebe', 'party'], 'Amapiano': ['party', 'liebe'], 'Dancehall': ['party', 'liebe'],
-  'R&B': ['liebe', 'reflexion'], 'Pop': ['liebe', 'party', 'motivation'],
-  'UK Drill': ['strasse', 'story', 'geld'], 'NY Drill': ['strasse', 'story'], 'Drill': ['strasse', 'geld'], 'Grime': ['strasse', 'fun'],
+  'Contemporary R&B': ['liebe', 'reflexion'], 'Pop': ['liebe', 'party', 'motivation'],
+  'UK Drill': ['strasse', 'story', 'geld'], 'NY Drill': ['strasse', 'story'], 'Chicago Drill': ['strasse', 'geld'], 'Grime': ['strasse', 'fun'],
   'Detroit': ['geld', 'fun', 'party'], 'Jerk': ['party', 'fun', 'geld'], 'Plugg': ['liebe', 'reflexion', 'geld'], 'Rage': ['motivation', 'party'],
-  'Trap': ['geld', 'motivation', 'strasse'], 'Memphis': ['strasse', 'story'], 'Phonk': ['motivation', 'strasse'], 'Hyperpop': ['fun', 'reflexion'],
+  'Atlanta Trap': ['geld', 'motivation', 'strasse'], 'Memphis': ['strasse', 'story'], 'Phonk': ['motivation', 'strasse'], 'Hyperpop': ['fun', 'reflexion'],
   'Deutschrap': ['leben', 'strasse', 'motivation'], 'Boom Bap': ['leben', 'reflexion', 'story'], 'Lo-Fi': ['reflexion', 'leben'],
   'West Coast': ['party', 'story'], 'Jersey Club': ['party', 'fun'], 'UK Garage': ['party', 'liebe'],
+  'UK Sample-Rap': ['leben', 'strasse', 'story'], 'R&B Trap': ['liebe', 'reflexion'], 'Alternative R&B': ['liebe', 'reflexion'],
+  '90s R&B': ['liebe', 'party'], 'Sexy Drill': ['liebe', 'party'], 'Dark Trap': ['strasse', 'story'], 'Melodic Trap': ['liebe', 'motivation'],
+  'Pluggnb': ['liebe', 'reflexion'], 'Trap Soul': ['liebe', 'reflexion'], 'Sample Drill': ['party', 'strasse'], 'Ratchet': ['party', 'fun'],
+  'Bay Area': ['party', 'fun'], 'Dancehall-Trap': ['party', 'strasse'], 'Afro-Trap (FR)': ['party', 'motivation'], 'French Drill': ['strasse', 'reflexion'],
+  'Maghreb-Urban': ['liebe', 'leben', 'reflexion'], 'Reggaeton': ['liebe', 'party'],
   'House': ['party', 'liebe'], 'Indie House': ['party', 'reflexion', 'liebe'], 'Indie Rock': ['leben', 'reflexion', 'liebe'],
 };
 
