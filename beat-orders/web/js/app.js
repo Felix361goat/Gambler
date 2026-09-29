@@ -10,7 +10,8 @@ import { SHOP, ITEMS, TROPHIES, TROPHY_BONUS, orderCoins, DEFAULT_PROFILE, carSv
 import {
   ensureAudioGraph, resumeAudio, createVisualizer, startRecording, stopRecording, isRecording,
 } from './visualizer.js';
-import { CUSTOMERS, CUSTOMER_BY_ID, ARCHETYPES, EXPERTS, BOSS, avatarSvg, vipAvatar, VIP_LINES } from './customers.js';
+import { CUSTOMERS, CUSTOMER_BY_ID, ARCHETYPES, EXPERTS, BOSS, avatarSvg, vipAvatar, VIP_LINES, firstName } from './customers.js';
+import { PEOPLE } from './people.js';
 import { cloud } from './cloud.js';
 import {
   isNative, App, LocalNotifications, notifId, requestNotificationPermission, scheduleAll, shareBlob,
@@ -848,7 +849,7 @@ function renderProfile() {
 
     <div class="section-title">Kundenkartei <small>${p.served.size}/${CUSTOMERS.length}</small></div>
     <div class="kartei glass">${CUSTOMERS.map((c) => p.served.has(c.id)
-      ? `<div class="k-item" title="${esc(c.name)}">${avatarSvg(c)}</div>`
+      ? `<button class="k-item" title="${esc(c.name)}" data-action="open-customer" data-id="${esc(c.id)}">${avatarSvg(c)}</button>`
       : '<div class="k-item unknown">?</div>').join('')}</div>
     <p class="footnote">Jeder Kunde, den du einmal bedient hast, landet hier. Schaffst du alle ${CUSTOMERS.length}?</p>
 
@@ -881,6 +882,48 @@ function expertSection() {
         <div><b>${b.ok ? esc(BOSS.name) : '??? ??? ???'}</b><span class="muted">Will einen release-fertigen Song. 6 Wochen Zeit, akzeptiert ab 9/10. Belohnung: 1.500 🪙.</span></div></div>
       ${b.ok ? '' : `<div class="reqs">${row(b.days >= BOSS_UNLOCK.days, `${BOSS_UNLOCK.days} Tage dabei (${b.days})`)}${row(b.delivered >= BOSS_UNLOCK.delivered, `${BOSS_UNLOCK.delivered} Abgaben (${b.delivered})`)}${row(b.experts >= BOSS_UNLOCK.expertsAccepted, 'Einen Experten überzeugt')}</div>`}
     </div>`;
+}
+
+// Steckbrief of a customer: who they are + your history together.
+function lyricsStats(t = '') {
+  const lines = t.split('\n').map((l) => l.trim()).filter((l) => l && !/^\[.*\]$/.test(l));
+  const words = lines.join(' ').split(/\s+/).filter(Boolean).length;
+  return `${lines.length} Zeilen · ~${Math.ceil(lines.length / 2)} Bars · ${words} Wörter`;
+}
+
+function renderCustomerSheet(c) {
+  if (!c) return '<p>Kunde nicht gefunden.</p>';
+  const a = ARCHETYPES[c.arch];
+  const theirs = state.orders.filter((o) => o.customerId === c.id && !o.deleted);
+  const done = theirs.filter((o) => o.status === 'delivered');
+  const rated = done.filter((o) => o.review?.rating);
+  const avg = rated.length ? (rated.reduce((m, o) => m + o.review.rating, 0) / rated.length).toFixed(1) : '–';
+  const fan = isFan(c.id, state.orders);
+  const P = PEOPLE[c.arch];
+  const facts = (c.facts || (c.fact ? [c.fact] : [])).map((f) => (P ? P.factTpl.replace('{first}', firstName(c)).replace('{fact}', f) : f));
+  return `
+    <div class="sheet-head">
+      <button class="btn plain" data-action="close-sheet">Schließen</button>
+      <h2>Kunden-Profil</h2><span style="width:80px"></span>
+    </div>
+    <div class="cust-head">
+      <div class="cust-avatar ${c.arch === 'expert' ? 'ring-expert' : c.arch === 'boss' ? 'ring-boss' : ''}">${avatarSvg(c)}</div>
+      <h2>${esc(c.name)}</h2>
+      <p class="muted">${esc(a?.label || '')}${fan ? ' · ⭐ Stammkunde' : ''}</p>
+      ${c.sig ? `<div class="bubble them" style="margin:10px auto 0;display:inline-block">„${esc(c.sig)}“</div>` : ''}
+    </div>
+    <div class="stats" style="margin-top:16px">
+      <div class="stat glass"><b>${theirs.length}</b><span>Aufträge</span></div>
+      <div class="stat glass"><b>${done.length}</b><span>Abgegeben</span></div>
+      <div class="stat glass"><b>${avg}</b><span>Ø Note</span></div>
+      <div class="stat glass"><b>${done.filter((o) => o.deadline && o.deliveredAt <= o.deadline).length}</b><span>Pünktlich</span></div>
+    </div>
+    ${facts.length ? `<div class="group-title">Was man über ${esc(firstName(c))} wissen muss</div>
+      <div class="group glass">${facts.map((f) => `<div class="row"><span class="label">${esc(f)}</span></div>`).join('')}</div>` : ''}
+    ${c.likes?.length ? `<div class="group-title">Hört gern</div><div class="chip-wrap" style="margin:0 4px">${c.likes.map((g) => `<span class="pill blue">${esc(g)}</span>`).join('')}</div>` : ''}
+    ${c.spec ? `<div class="group-title">Will immer</div><div class="group glass"><div class="row"><span class="label">${esc(c.spec.label)} · ${c.spec.bpm[0]}–${c.spec.bpm[1]} BPM<br><small class="muted">${esc(c.spec.inst.join(', '))}</small></span></div></div>` : ''}
+    ${theirs.length ? `<div class="group-title">Eure Geschichte</div>${theirs.sort((x, y) => y.createdAt - x.createdAt).map(orderCard).join('')}` : '<p class="footnote">Ihr hattet noch keinen Auftrag zusammen.</p>'}
+  `;
 }
 
 function renderShopSheet() {
@@ -1074,6 +1117,7 @@ function renderSheet() {
   if (s.kind === 'order') html = renderOrderSheet(state.orders.find((o) => o.id === s.id));
   else if (s.kind === 'own') html = renderOwnSheet();
   else if (s.kind === 'shop') html = renderShopSheet();
+  else if (s.kind === 'customer') html = renderCustomerSheet(CUSTOMER_BY_ID[s.id]);
   const oldVideo = $('#sheet video');
   if (oldVideo) oldVideo.remove(); // detach so it keeps playing
   $('#sheet').innerHTML = `<div class="grabber"></div>${html}`;
@@ -1119,7 +1163,7 @@ function renderOrderSheet(o) {
     ${o.tier ? `<div class="tier-banner tier-${o.tier}">${TIER[o.tier].badge} · akzeptiert nur ab ${o.minRating}/10 · längere Deadline</div>` : ''}
     <div class="sheet-head">
       <button class="btn plain" data-action="close-sheet">Schließen</button>
-      <h2 class="sheet-title">${customerOf(o) ? `<span class="mini-avatar ${o.tier ? `ring-${o.tier}` : ''}">${avatarSvg(customerOf(o))}</span>` : ''}${esc(o.type === 'own' ? 'Projekt' : o.type === 'video' ? 'Video' : o.type === 'vocals' ? 'Vocals' : o.client.split(' – ')[0])}</h2>
+      <h2 class="sheet-title">${customerOf(o) ? `<button class="mini-avatar ${o.tier ? `ring-${o.tier}` : ''}" data-action="open-customer" data-id="${esc(o.customerId)}" aria-label="Kunden-Profil">${avatarSvg(customerOf(o))}</button>` : ''}${esc(o.type === 'own' ? 'Projekt' : o.type === 'video' ? 'Video' : o.type === 'vocals' ? 'Vocals' : o.client.split(' – ')[0])}</h2>
       <span style="width:80px;text-align:right"><span class="pill ${due.cls}">${delivered ? '✓' : due.text.replace('Noch ', '')}</span></span>
     </div>
 
@@ -1174,6 +1218,13 @@ function renderOrderSheet(o) {
       ${!delivered && subs.length ? `<button class="btn" style="margin-top:10px" data-action="deliver" data-id="${o.id}">${selfMade(o) ? 'Als fertig markieren' : `v${subs[0].version} abgeben`}</button>` : ''}
     `}
 
+    ${['vocals', 'full_song', 'hook', 'release'].includes(o.type) ? `
+    <div class="group-title">✍️ Lyrics</div>
+    <div class="group glass lyrics">
+      <textarea data-lyrics="${o.id}" placeholder="[Hook]\n…\n\n[Part 1]\n…" rows="10">${esc(o.lyrics || '')}</textarea>
+      <div class="lyrics-bar"><span id="lyricsStats">${lyricsStats(o.lyrics)}</span>
+        <button class="btn plain small" data-action="lyrics-template" data-id="${o.id}">+ Struktur</button></div>
+    </div>` : ''}
     <div class="group glass" style="margin-top:22px">
       <label class="row col"><span class="label" style="font-size:13px;color:var(--label-2)">Notizen${o.type === 'video' ? '' : ' (Samples, Plugins, Ideen …)'}</span>
         <textarea data-note="${o.id}" placeholder="${o.type === 'video' ? 'z. B. Drehorte, Outfits, Shots, CapCut-Effekte …' : o.type === 'vocals' ? 'z. B. Reimideen, Flow, Adlibs, Mic-Einstellungen …' : 'z. B. Serum Preset „Dark Pluck“, 808 aus Kit X …'}">${esc(o.notes || '')}</textarea></label>
@@ -1712,6 +1763,17 @@ const actions = {
   'new-own': () => openSheet({ kind: 'own' }),
 
   'open-shop': () => openSheet({ kind: 'shop' }),
+  'open-customer': (el) => openSheet({ kind: 'customer', id: el.dataset.id }),
+  async 'lyrics-template'(el) {
+    const o = state.orders.find((x) => x.id === el.dataset.id);
+    const L = o.concept?.length || '';
+    const parts = /3 Parts/.test(L) ? ['Part 1', 'Part 2', 'Part 3']
+      : /1 Part|Hook \+ 1|8 \+ 16/.test(L) ? ['Hook', 'Part 1', 'Hook']
+      : ['Intro', 'Hook', 'Part 1', 'Hook', 'Part 2', 'Hook', 'Outro'];
+    o.lyrics = (o.lyrics ? `${o.lyrics}\n\n` : '') + parts.map((x) => `[${x}]\n`).join('\n');
+    await saveOrder(o);
+    renderSheet();
+  },
   'start-session': (el) => startSession(el.dataset.id || null),
   'stop-session': () => stopSession(),
   async 'hide-recap'() { state.recapSeen = weekKey(Date.now() - 7 * DAY); await db.set('recapSeen', state.recapSeen); render(); },
@@ -1897,6 +1959,7 @@ document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () 
 
 document.addEventListener('input', (e) => {
   const el = e.target;
+  if (el.dataset.lyrics) { const st = $('#lyricsStats'); if (st) st.textContent = lyricsStats(el.value); }
   if (el.dataset.input === 'search') {
     state.filter.q = el.value;
     const pos = el.selectionStart;
@@ -1920,6 +1983,10 @@ document.addEventListener('change', async (e) => {
   } else if (el.dataset.setting) {
     state.settings[el.dataset.setting] = el.value.trim();
     await saveSettings();
+  } else if (el.dataset.lyrics) {
+    const o = state.orders.find((x) => x.id === el.dataset.lyrics);
+    o.lyrics = el.value;
+    await saveOrder(o, { silent: false });
   } else if (el.dataset.lesson) {
     const o = state.orders.find((x) => x.id === el.dataset.lesson);
     o.review.lesson = el.value;
