@@ -151,10 +151,10 @@ export const GENRES = {
   'French Drill': { fam: 'FR/ES', bpm: [140, 145], keys: ['F# Moll', 'C# Moll'],
     inst: ['melancholisches Piano', 'Sliding 808', 'Strings', 'Chor', 'Drill-Percs'], snare: 'auf der 3 + versetzte Drill-Snares',
     hats: 'Drill-Triolen', bass: '808-Slides', arr: 'Melancholisch-melodisch, Hook gesungen', tip: 'UK-Drill-Drums mit französischer Melancholie im Piano.', refs: ['Gazo', 'Ziak', 'Kerchak'] },
-  'Maghreb-Urban': { fam: 'FR/ES', bpm: [95, 105], keys: ['E Phrygisch-Dominant (Skala)', 'A Phrygisch (Skala)', 'D Moll'],
+  'Morad-Style': { fam: 'FR/ES', bpm: [95, 105], keys: ['E Phrygisch-Dominant (Skala)', 'A Phrygisch (Skala)', 'D Moll'],
     inst: ['Flamenco-/Spanische Gitarre', 'Oud', 'Raï-Keys/Maghreb-Synth', 'Darbuka', 'Tabla', 'Autotune-Vocals', 'Reverb-Vocal-Chops'],
     snare: 'Clap auf der 3 (Half-Time) oder Dembow-artig', hats: 'sparsam, dafür Darbuka-Rolls', bass: '808 oder Sub, eher ruhig',
-    arr: 'Melancholischer Loop, gesungene Hooks', tip: 'Phrygisch-dominante Tonleiter (Halbton-Schritt am Anfang) = sofort orientalischer Klang.',
+    arr: 'Melancholischer Loop, gesungene Hooks – Straßen-Rap mit nordafrikanischen (marokkanischen) Melodien, wie ihn Morad macht', tip: 'Phrygisch-dominante Tonleiter (Halbton-Schritt am Anfang) = sofort orientalischer Klang.',
     refs: ['Morad (Barcelona)', 'Beny Jr', 'Soolking', 'JUL'] },
   // ── ANDERE ────────────────────────────────────────────────────────────
   'Contemporary R&B': { fam: 'Andere', bpm: [65, 95], keys: ['Db Dur', 'Ab Dur', 'Bb Moll'],
@@ -224,7 +224,7 @@ export const IDEAS = {
   'Jersey Club': ['Programmier die klassische 5-Kick-Figur am Taktende', 'Nutze einen Bed-Squeak oder ein lustiges Sample als Percussion'],
   'West Coast': ['Bau einen hohen Synth-Whine als Lead', 'Spiel eine funky Bassline'],
   'Boom Bap': ['Sample einen alten Jazz- oder Soul-Song', 'Swing die Drums (FL-Swing-Regler im Channel Rack)'],
-  'Maghreb-Urban': ['Spiel eine Melodie in phrygisch-dominant (orientalischer Klang)', 'Nutze eine spanische Gitarre oder Oud als Hauptinstrument', 'Baue einen Darbuka-Roll als Übergang ein'],
+  'Morad-Style': ['Spiel eine Melodie in phrygisch-dominant (orientalischer Klang)', 'Nutze eine spanische Gitarre oder Oud als Hauptinstrument', 'Baue einen Darbuka-Roll als Übergang ein'],
   'Afro-Trap (FR)': ['Kombiniere Afro-Shaker mit Trap-Hat-Rolls', 'Nutze eine Kora- oder Gitarren-Melodie'],
   'French Drill': ['Schreib eine melancholische Piano-Melodie in Moll'],
   'House': ['Baue einen Breakdown + Build-up + Drop', 'Nutze einen gechoppten Vocal als Hook'],
@@ -241,4 +241,4 @@ export const ideaFor = (genre) => {
 };
 
 // Genre names that changed (old saved orders/settings get migrated).
-export const GENRE_RENAMES = { 'Trap': 'Atlanta Trap', 'Drill': 'Chicago Drill', 'R&B': 'Contemporary R&B' };
+export const GENRE_RENAMES = { 'Trap': 'Atlanta Trap', 'Drill': 'Chicago Drill', 'R&B': 'Contemporary R&B', 'Maghreb-Urban': 'Morad-Style' };

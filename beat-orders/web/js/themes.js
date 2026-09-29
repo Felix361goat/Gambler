@@ -64,7 +64,7 @@ const GENRE_THEMES = {
   '90s R&B': ['liebe', 'party'], 'Sexy Drill': ['liebe', 'party'], 'Dark Trap': ['strasse', 'story'], 'Melodic Trap': ['liebe', 'motivation'],
   'Pluggnb': ['liebe', 'reflexion'], 'Trap Soul': ['liebe', 'reflexion'], 'Sample Drill': ['party', 'strasse'], 'Ratchet': ['party', 'fun'],
   'Bay Area': ['party', 'fun'], 'Dancehall-Trap': ['party', 'strasse'], 'Afro-Trap (FR)': ['party', 'motivation'], 'French Drill': ['strasse', 'reflexion'],
-  'Maghreb-Urban': ['liebe', 'leben', 'reflexion'], 'Reggaeton': ['liebe', 'party'],
+  'Morad-Style': ['liebe', 'leben', 'reflexion'], 'Reggaeton': ['liebe', 'party'],
   'House': ['party', 'liebe'], 'Indie House': ['party', 'reflexion', 'liebe'], 'Indie Rock': ['leben', 'reflexion', 'liebe'],
 };
 

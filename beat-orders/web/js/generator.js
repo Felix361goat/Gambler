@@ -29,7 +29,7 @@ export const DEFAULT_GENRE_WEIGHTS = {
   // Kern – nach deinen Spotify-Stats (J Hus, JAE5, Kojo Funds, NSG, Skeete, Nines, Tera Kòrá …)
   'UK Afroswing': 4, 'UK Rap': 3, 'Afrobeats': 3, 'Afro-Dancehall': 2, 'UK R&B': 2, 'UK Drill': 2, 'Amapiano': 2,
   // Dancehall-inspiriert + FR/ES (Morad & Co.)
-  'UK Sample-Rap': 2, 'Dancehall': 2, 'Dancehall-Trap': 2, 'Afro-Trap (FR)': 2, 'Maghreb-Urban': 2, 'French Drill': 1, 'Reggaeton': 1,
+  'UK Sample-Rap': 2, 'Dancehall': 2, 'Dancehall-Trap': 2, 'Afro-Trap (FR)': 2, 'Morad-Style': 2, 'French Drill': 1, 'Reggaeton': 1,
   // Amerikanisch – die ganze Trap-Familie & Co., ab und zu
   'R&B Trap': 2, 'Alternative R&B': 1, '90s R&B': 1, 'Sexy Drill': 1,
   'Detroit': 2, 'Jerk': 2, 'Atlanta Trap': 1, 'Dark Trap': 1, 'Melodic Trap': 1, 'Rage': 1, 'Plugg': 1, 'Pluggnb': 1, 'Trap Soul': 1,
