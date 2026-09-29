@@ -478,7 +478,7 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
 .tier-banner.tier-boss { background: linear-gradient(90deg, #450a0a, #dc2626, #450a0a); color: #fff; }
 .ring-expert { box-shadow: 0 0 0 2.5px #fbbf24, 0 0 14px rgba(251,191,36,.7); }
 .ring-boss { box-shadow: 0 0 0 2.5px #ef4444, 0 0 18px rgba(239,68,68,.8); }
-.expert-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; text-align: center; }
+.expert-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(58px, 1fr)); gap: 8px; text-align: center; }
 .expert b { display: block; font-size: 12px; margin-top: 6px; line-height: 1.2; }
 .expert small { font-size: 11px; color: var(--label-2); }
 .expert .mini-avatar.big { width: 52px; height: 52px; }

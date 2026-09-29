@@ -2,7 +2,7 @@ import { db, requestPersistence } from './db.js';
 import {
   ORDER_TYPES, GENRES, DEFAULT_SETTINGS, generateOrder, createOwnProject,
   clientReply, nextArrival, uid, createVideoOrder, createVocalOrder, rerollConcept, reviewOpensAt,
-  SKILLS, levelInfo, DEFAULT_GENRE_WEIGHTS, GENRE_LABELS, analyze, pickChallenge, windowOn, freeMinutesPerWeek,
+  SKILLS, levelInfo, DEFAULT_GENRE_WEIGHTS, GENRE_LABELS, TASTE_VERSION, analyze, pickChallenge, windowOn, freeMinutesPerWeek,
   createExpertOrder, createBossOrder, verdictReply, isFan, EXPERT_MIN, vocalBrief, songPrompt,
 } from './generator.js';
 import { titleFor, tipOfDay, questsForWeek } from './motivation.js';
@@ -1158,6 +1158,7 @@ function renderOrderSheet(o) {
   // Odd number of tiles → stretch the last one; instruments always get a full row.
   if (specs.length % 2) specs[specs.length - 1].wide = true;
   if (o.instruments?.length) specs.push(Object.assign(['Instrumente', o.instruments.join(', ')], { wide: true }));
+  if (o.refs?.length) specs.push(Object.assign(['🎧 Referenz', o.refs.join(', ')], { wide: true }));
 
   return `
     ${o.tier ? `<div class="tier-banner tier-${o.tier}">${TIER[o.tier].badge} · akzeptiert nur ab ${o.minRating}/10 · längere Deadline</div>` : ''}
@@ -1737,14 +1738,14 @@ const actions = {
     const make = o.type === 'vocals' ? createVocalOrder : createVideoOrder;
     const fresh = make(src, { concept: rerollConcept(o), ...genOpts() });
     Object.assign(o, { concept: fresh.concept, mood: fresh.mood });
-    o.brief = o.type === 'vocals' && o.prompt ? vocalBrief(o.concept, o.title.replace(/^Vocals: /, ''), o.prompt) : fresh.brief;
+    o.brief = o.type === 'vocals' && o.prompt ? vocalBrief(o.concept, o.title.replace(/^Vocals: /, ''), o.prompt, o.refs) : fresh.brief;
     await saveOrder(o);
     renderSheet();
   },
   async 'reroll-theme'(el) {
     const o = state.orders.find((x) => x.id === el.dataset.id);
     o.prompt = songPrompt(o.genre);
-    o.brief = vocalBrief(o.concept, o.title.replace(/^Vocals: /, ''), o.prompt);
+    o.brief = vocalBrief(o.concept, o.title.replace(/^Vocals: /, ''), o.prompt, o.refs);
     await saveOrder(o);
     renderSheet();
   },
@@ -2054,6 +2055,12 @@ async function boot() {
   // New genres get their defaults; old on/off genre list is folded in once.
   const oldGenres = state.settings.genres;
   state.settings.genreWeights = { ...DEFAULT_GENRE_WEIGHTS, ...(state.settings.genreWeights || {}) };
+  // New taste profile (from your Spotify stats) → apply the new defaults once.
+  if ((state.settings.tasteVersion || 0) < TASTE_VERSION) {
+    state.settings.genreWeights = { ...DEFAULT_GENRE_WEIGHTS };
+    state.settings.tasteVersion = TASTE_VERSION;
+    await saveSettings();
+  }
   if (Array.isArray(oldGenres)) {
     for (const g of oldGenres) state.settings.genreWeights[g] = Math.max(2, state.settings.genreWeights[g] ?? 0);
     delete state.settings.genres;

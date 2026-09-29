@@ -39,6 +39,9 @@ export const GENRES = {
   'UK Garage':   { bpm: [130, 136], keys: ['F Moll', 'A Moll'], inst: ['2-Step-Shuffle-Drums', 'Organ-Bass', 'gepitchte Vocal-Chops', 'Stabs'] },
   'Grime':       { bpm: [138, 142], keys: ['E Moll', 'D Moll'], inst: ['eckige Square-Leads', 'Sub-Bass', 'Eski-Stabs', 'harte Snares'] },
   'Amapiano':    { bpm: [110, 115], keys: ['A Moll', 'D Moll', 'F Dur'], inst: ['Log Drum', 'Shaker', 'jazzige Piano-Chords', 'weite Pads', 'Whistle'] },
+  'UK Rap':      { bpm: [136, 146], keys: ['C Moll', 'F Moll', 'G# Moll'], inst: ['Soul- oder Piano-Sample', 'harte 808 im Half-Time-Feel', 'UK-Drums mit Snare auf 3', 'Vocal-Chop', 'dunkle Strings'] },
+  'UK R&B':      { bpm: [95, 118], keys: ['Ab Dur', 'F Moll', 'Eb Dur'], inst: ['warme Rhodes', 'Afro-Percs', 'weiche Pads', 'gepitchte Vocal-Chops', 'runder Sub'] },
+  'Afro-Dancehall': { bpm: [95, 106], keys: ['G Moll', 'D Moll', 'A Moll'], inst: ['Dancehall-Riddim-Drums', 'Afro-Percs', 'Plucks/Marimba', 'Stabs', 'tiefer Sub'] },
   // US sounds
   'Detroit':     { bpm: [94, 104], keys: ['F Moll', 'C# Moll', 'G Moll'], inst: ['hüpfendes Offbeat-Piano', 'Clap auf 2 & 4', 'schnelle Hi-Hats', 'kurze 808 mit Glide'] },
   'Jerk':        { bpm: [150, 168], keys: ['C Dur', 'A Moll', 'E Moll'], inst: ['luftige Bells/Plucks', 'Jersey-Kicks', 'schnelle Hi-Hats', 'verzerrte 808', 'Vocal-Chops'] },
@@ -56,12 +59,50 @@ export const GENRES = {
 // How often each genre comes up (0 = aus … 4 = sehr oft). Tuned to your taste:
 // UK Afroswing + US sounds a lot, House/Indie ab und zu, Indie Rock selten.
 export const DEFAULT_GENRE_WEIGHTS = {
-  'UK Afroswing': 4, 'Afrobeats': 3, 'Detroit': 3, 'Jerk': 3, 'UK Drill': 2, 'NY Drill': 2, 'Plugg': 2, 'Rage': 2,
-  'Amapiano': 2, 'Trap': 2, 'R&B': 2, 'Deutschrap': 2, 'Drill': 1, 'Jersey Club': 2, 'UK Garage': 1, 'Grime': 1,
-  'Memphis': 1, 'West Coast': 1, 'Boom Bap': 1, 'Lo-Fi': 1, 'Pop': 1, 'Phonk': 1, 'Dancehall': 1, 'Hyperpop': 1,
+  // Kern – nach deinen Spotify-Stats (J Hus, JAE5, Kojo Funds, NSG, Skeete, Nines, Tera Kòrá …)
+  'UK Afroswing': 4, 'UK Rap': 3, 'Afrobeats': 3, 'Afro-Dancehall': 2, 'UK R&B': 2, 'UK Drill': 2, 'Amapiano': 2, 'Dancehall': 1,
+  // Amerikanisch – ab und zu, damit du alles durchmachst
+  'Detroit': 2, 'Jerk': 2, 'Plugg': 1, 'Rage': 1, 'NY Drill': 1, 'Trap': 1, 'Memphis': 1, 'West Coast': 1, 'Jersey Club': 1,
+  // Rest
+  'R&B': 1, 'Deutschrap': 1, 'Drill': 1, 'UK Garage': 1, 'Grime': 1, 'Boom Bap': 1, 'Lo-Fi': 1, 'Pop': 1, 'Phonk': 1, 'Hyperpop': 1,
+  // Ganz anders (Calvin Harris & Co.)
   'House': 1, 'Indie House': 1, 'Indie Rock': 1,
 };
+export const TASTE_VERSION = 2; // bump → defaults are re-applied once
+
+// Reference artists per sound (your own favourites where they fit).
+export const GENRE_REFS = {
+  'UK Afroswing': ['J Hus', 'Kojo Funds', 'NSG', 'WSTRN', 'JAE5 (Prod.)', 'Keeya Keys'],
+  'UK Rap': ['Skeete', 'Nines', 'Gola Gianni', 'Chip', 'Pa Salieu'],
+  'Afrobeats': ['Tera Kòrá', 'Yung D3mz', 'Skiibii', 'Rema'],
+  'Afro-Dancehall': ['Skillibeng', 'Juls (Prod.)', 'Projexx', 'Valiant'],
+  'UK R&B': ['8synatra', 'Keys the Prince', 'Frisco'],
+  'UK Drill': ['Headie One', 'Digga D', 'Skeete'],
+  'Amapiano': ['Kabza De Small', 'Tyla', 'Uncle Waffles'],
+  'Dancehall': ['Skillibeng', 'Popcaan', 'Vybz Kartel'],
+  'Detroit': ['BabyTron', 'Veeze', 'Babyface Ray'],
+  'Jerk': ['Xaviersobased', 'Nettspend', 'OsamaSon'],
+  'Plugg': ['Summrs', 'Autumn!', 'Kankan'],
+  'Rage': ['Playboi Carti', 'Yeat', 'Ken Carson'],
+  'NY Drill': ['Pop Smoke', 'Kay Flock', 'Sheff G'],
+  'Trap': ['Future', 'Metro Boomin', 'Travis Scott'],
+  'Memphis': ['Three 6 Mafia', 'Duke Deuce'],
+  'West Coast': ['Dr. Dre', 'Snoop Dogg', 'Kendrick Lamar'],
+  'Jersey Club': ['Bandmanrill', 'Cookiee Kawaii'],
+  'R&B': ['Brent Faiyaz', 'SZA'],
+  'Deutschrap': ['Luciano', 'Pashanim'],
+  'UK Garage': ['Craig David', 'Conducta'],
+  'Grime': ['Skepta', 'Chip'],
+  'House': ['Calvin Harris', 'Fred again..'],
+  'Indie House': ['Jungle', 'Parcels'],
+  'Indie Rock': ['Arctic Monkeys', 'The Strokes'],
+};
+export const refsFor = (genre, n = 2) => [...(GENRE_REFS[genre] || [])].sort(() => Math.random() - 0.5).slice(0, n);
+
 export const GENRE_LABELS = ['Aus', 'Selten', 'Ab und zu', 'Oft', 'Sehr oft'];
+// Steps are steep on purpose: "Selten" ≈ 1/16 of "Sehr oft".
+const WEIGHT_SCALE = [0, 1, 3, 7, 16];
+const gweight = (gw, g) => WEIGHT_SCALE[gw[g] ?? 0] ?? 0;
 
 const MOODS = ['dunkel', 'melancholisch', 'aggressiv', 'chillig', 'euphorisch', 'emotional', 'bouncy', 'verträumt', 'hart', 'sommerlich'];
 
@@ -293,9 +334,10 @@ const VOCAL_CONCEPTS = [
   { format: 'Feature-Style', length: 'Hook + Part + Platz für Feature', idea: 'Schreib Hook und einen Part auf „{song}“ und lass Platz für ein Feature (16 Bars). Thema: {theme}.' },
 ];
 
-export function vocalBrief(c, title, pr) {
+export function vocalBrief(c, title, pr, refs = []) {
   return `${fill(c.idea, { song: title, theme: pr.theme })}\n\n✍️ Thema (${pr.category}): ${pr.theme}\n👁️ Perspektive: ${pr.perspective}\n` +
-    `🔑 Pflicht-Wort: „${pr.word}“\n🎬 Einstieg (optional): ${pr.opener}\n💭 Gefühl: ${pr.emotion}`;
+    `🔑 Pflicht-Wort: „${pr.word}“\n🎬 Einstieg (optional): ${pr.opener}\n💭 Gefühl: ${pr.emotion}` +
+    (refs.length ? `\n🎧 Vibe-Referenz: ${refs.join(' / ')}` : '');
 }
 export { songPrompt };
 
@@ -307,8 +349,9 @@ export function createVocalOrder(beat, { concept, history = [], settings } = {})
   return {
     id: uid(), client: 'Du', type: 'vocals', genre: beat.genre,
     title: `Vocals: ${title}`,
-    brief: vocalBrief(c, title, prompt),
+    brief: vocalBrief(c, title, prompt, refsFor(beat.genre, 2)),
     prompt,
+    refs: refsFor(beat.genre, 2),
     concept: c, sourceOrderId: beat.id,
     challenge: pickChallenge('vocals', { history }),
     effort: ORDER_TYPES.vocals.effort,
@@ -393,10 +436,10 @@ export function generateOrder(settings, { type, at, history = [] } = {}) {
   const freshGenres = genreNames.filter((g) => !recentGenres.includes(g));
   // Your strong genres (≥ 8 Ø) come up a bit more, declined ones less.
   const { genres: genreStats } = analyze(history);
-  const genre = theirs.length && Math.random() < 0.45
-    ? pick(theirs)
+  const genre = theirs.length && Math.random() < 0.4
+    ? weightedPick(theirs, (g) => gweight(gw, g))
     : weightedPick(freshGenres.length ? freshGenres : genreNames,
-      (g) => (gw[g] ?? 1) * ((genreStats[g]?.avg ?? 0) >= 8 ? 1.3 : 1) / (1 + (declined.genres[g] || 0)));
+      (g) => gweight(gw, g) * ((genreStats[g]?.avg ?? 0) >= 8 ? 1.3 : 1) / (1 + (declined.genres[g] || 0)));
   const g = GENRES[genre];
   const tw = Object.fromEntries(Object.entries(settings.types || DEFAULT_SETTINGS.types)
     .map(([k, w]) => [k, w / (1 + 0.5 * (declined.types[k] || 0))]));
@@ -424,6 +467,7 @@ export function generateOrder(settings, { type, at, history = [] } = {}) {
     instruments: t === 'vocal_chain' ? [] : [i1, i2],
     brief: writeBrief(customer, t, vars),
     challenge: pickChallenge(t, { history }),
+    refs: refsFor(genre),
     effort: T.effort,
     budget,
     createdAt: now,
@@ -479,7 +523,7 @@ export function createExpertOrder(settings, { history = [], at } = {}) {
 export function createBossOrder(settings, { history = [], at } = {}) {
   const now = at ?? Date.now();
   const gw = settings.genreWeights || DEFAULT_GENRE_WEIGHTS;
-  const vars = { genre: weightedPick(Object.keys(GENRES), (g) => gw[g] ?? 0) };
+  const vars = { genre: weightedPick(Object.keys(GENRES), (g) => gweight(gw, g)) };
   const d = new Date(now); d.setDate(d.getDate() + 42); d.setHours(23, 59, 0, 0);
   return {
     id: uid(), tier: 'boss', minRating: BOSS_MIN,

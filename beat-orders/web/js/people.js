@@ -33,7 +33,7 @@ export const PEOPLE = {
       'ich hab meine tiktok-tänze im spiegel geübt, 4 stunden',
       'ich hab einen dubai-urlaub nur für fotos gemacht',
       'ich kann mit high heels joggen'],
-    likes: ['R&B', 'Afrobeats', 'Dancehall', 'UK Afroswing', 'Amapiano', 'Jersey Club', 'Pop'],
+    likes: ['UK Afroswing', 'UK R&B', 'Afro-Dancehall', 'Afrobeats', 'Amapiano', 'Dancehall', 'R&B'],
     factTpl: 'ps: ich bin {first} und {fact}',
   },
   rentner: {
@@ -81,7 +81,7 @@ export const PEOPLE = {
       'ich hab einen brief an den weihnachtsmann schon im juli geschrieben',
       'ich hab 7 kuscheltiere und alle haben jobs',
       'ich hab mir die haare selber geschnitten (mama war sauer)'],
-    likes: ['Hyperpop', 'Phonk', 'Pop', 'Jerk', 'Jersey Club', 'Trap'],
+    likes: ['Jerk', 'Afro-Dancehall', 'Hyperpop', 'Phonk', 'Jersey Club', 'Pop'],
     factTpl: 'ich bin {first} und {fact}',
   },
   gamer: {
@@ -122,7 +122,7 @@ export const PEOPLE = {
       'ich trinke Tee mit 6 Zucker',
       'ich reim auch beim Einkaufen',
       'ich hab mal einen Beat für 5 Euro gekauft und daraus einen Hit gemacht (in meinem Kopf)'],
-    likes: ['UK Drill', 'NY Drill', 'Detroit', 'Deutschrap', 'Trap', 'Boom Bap', 'Grime'],
+    likes: ['UK Rap', 'UK Drill', 'UK Afroswing', 'NY Drill', 'Detroit', 'Deutschrap', 'Grime'],
     factTpl: 'Nebenbei: ich bin {first} und {fact}.',
     fullName: true,
   },
@@ -141,7 +141,7 @@ export const PEOPLE = {
       'ich hab mehr Proteinriegel als Bücher',
       'ich hab einen Trainingsplan für meinen Trainingsplan',
       'ich hab meine Hochzeit ins Gym verlegt (fast)'],
-    likes: ['Phonk', 'Rage', 'Trap', 'Drill', 'Deutschrap', 'House'],
+    likes: ['UK Drill', 'Rage', 'Phonk', 'UK Rap', 'House', 'Trap'],
     factTpl: 'Fun Fact: Ich bin {first} und {fact}.',
     fullName: true,
   },
@@ -195,7 +195,7 @@ export const PEOPLE = {
       'ich schicke jeden Morgen „Guten Morgen“-GIFs in die Familiengruppe',
       'ich hab einen Kalender nur für Termine der Kinder',
       'ich mach jedes Jahr einen Adventskalender mit 24 Basteleien'],
-    likes: ['Pop', 'Amapiano', 'UK Afroswing', 'Dancehall', 'Afrobeats', 'House'],
+    likes: ['Pop', 'Amapiano', 'UK Afroswing', 'Afrobeats', 'House', 'UK R&B'],
     factTpl: 'PS: Ich bin die {first} und {fact} 😅',
   },
   eso: {
@@ -226,7 +226,7 @@ export const PEOPLE = {
       'ich nenne Mittagessen „Lunch & Learn“',
       'ich hab eine Smartwatch, die mich stresst',
       'ich hab 3 Visitenkarten mit unterschiedlichen Titeln'],
-    likes: ['Pop', 'House', 'UK Afroswing', 'Afrobeats', 'Trap'],
+    likes: ['House', 'UK Afroswing', 'Afrobeats', 'Pop', 'UK R&B'],
     factTpl: 'Fun Fact: {fact}.',
   },
   hipster: {
