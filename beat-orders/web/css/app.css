@@ -320,6 +320,24 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
 .play-dot svg { width: 16px; height: 16px; fill: currentColor; stroke: none; }
 .play-dot svg.stroke { fill: none; stroke: currentColor; stroke-width: 2.2; width: 18px; height: 18px; }
 
+/* Progress / level */
+.level { display: flex; align-items: center; gap: 14px; border-radius: var(--radius); padding: 14px 16px; margin-bottom: 14px; }
+.level-badge {
+  flex: none; width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center;
+  font-size: 24px; font-weight: 800; color: #fff; background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 6px 18px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.level-main { flex: 1; min-width: 0; }
+.level-top { display: flex; justify-content: space-between; align-items: baseline; }
+.level-top span, .level-stats span { font-size: 13px; color: var(--label-2); }
+.level-stats { display: flex; gap: 14px; margin-top: 7px; flex-wrap: wrap; }
+
+/* Learning challenge */
+.challenge { display: flex; gap: 12px; align-items: flex-start; border-radius: 20px; padding: 14px 16px; margin: 14px 0; }
+.challenge-ico { font-size: 26px; line-height: 1; }
+.challenge b { display: block; font-size: 16px; margin: 2px 0; }
+.challenge span { display: block; font-size: 13px; color: var(--label-2); }
+
 /* Self-review */
 .review { display: flex; gap: 14px; align-items: center; border-radius: 20px; padding: 14px 16px; margin: 14px 0; }
 .review.col { flex-direction: column; align-items: stretch; gap: 8px; }

@@ -2,6 +2,7 @@ import { db, requestPersistence } from './db.js';
 import {
   ORDER_TYPES, GENRES, DEFAULT_SETTINGS, generateOrder, createOwnProject,
   clientReply, nextArrival, uid, createVideoOrder, rerollConcept, reviewOpensAt,
+  SKILLS, levelInfo,
 } from './generator.js';
 import { cloud } from './cloud.js';
 import {
@@ -37,6 +38,34 @@ const isVideoFile = (s) => (s.mime || '').startsWith('video/') || /\.(mp4|mov|m4
 // Self-review: opens the day after delivery, then rate 1–10.
 const reviewOpen = (o) => visible(o) && o.review && !o.review.rating && Date.now() >= o.review.opensAt;
 const reviewWaiting = (o) => visible(o) && o.review && !o.review.rating && Date.now() < o.review.opensAt;
+
+// ---- Progress: XP, level, weekly streak, learned skills -----------------
+function orderXp(o) {
+  if (!visible(o) || o.status !== 'delivered') return 0;
+  let xp = selfMade(o) ? 8 : 10;
+  if (o.deadline && o.deliveredAt <= o.deadline) xp += 5;
+  if (o.challenge?.done) xp += 10;
+  if (o.review?.rating) xp += o.review.rating + (o.review.rating >= state.settings.videoThreshold ? 10 : 0);
+  return xp;
+}
+const weekStart = (ts) => {
+  const d = new Date(ts);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // Monday
+  return d.getTime();
+};
+function progress() {
+  const done = state.orders.filter((o) => visible(o) && o.status === 'delivered');
+  const info = levelInfo(done.reduce((a, o) => a + orderXp(o), 0));
+  // Streak: weeks in a row with at least one delivery (this week may still be open).
+  const weeks = new Set(done.map((o) => weekStart(o.deliveredAt)));
+  let w = weekStart(Date.now()), streak = 0;
+  if (!weeks.has(w)) w -= 7 * DAY;
+  while (weeks.has(w)) { streak++; w = weekStart(w - 3 * DAY); }
+  const skills = new Set(done.filter((o) => o.challenge?.done).map((o) => o.challenge.name));
+  return { ...info, streak, skills };
+}
+const genOpts = () => ({ history: state.orders.filter((o) => !o.deleted), level: progress().level });
 
 function hue(str) {
   let h = 0;
@@ -156,7 +185,7 @@ async function runSync(quiet) {
 const activeCount = () => state.orders.filter((o) => isActive(o) && !selfMade(o)).length;
 
 async function newPending(from = Date.now()) {
-  const p = generateOrder(state.settings, { at: nextArrival(state.settings, from) });
+  const p = generateOrder(state.settings, { at: nextArrival(state.settings, from), ...genOpts() });
   await db.set('pendingOrder', p);
   return p;
 }
@@ -308,6 +337,7 @@ function orderCard(o) {
     ${o.type === 'own' ? '' : `<p class="order-brief">${esc(o.brief)}</p>`}
     <div class="order-foot">
       <span class="pill ${due.cls}">${due.text}</span>
+      ${o.challenge ? `<span class="pill ${o.challenge.done ? 'green' : 'blue'}">🎯 ${esc(o.challenge.area)}${o.challenge.done ? ' ✓' : ''}</span>` : ''}
       ${o.submissions.length ? `<span class="pill">${o.type === 'video' ? '🎬' : '🎧'} ${o.submissions.length} Version${o.submissions.length > 1 ? 'en' : ''}</span>` : ''}
       <span class="spacer"></span>
       ${o.budget ? `<span class="pill green">${o.budget} €</span>` : ''}
@@ -336,6 +366,7 @@ function renderOrders() {
       <button class="icon-btn glass" data-action="request-order" aria-label="Auftrag anfordern" style="margin-bottom:6px">${ICON.plus}</button>
     </div>
     <p class="subtitle">Hi${name} 👋 Diese Woche: ${doneWeek}/${state.settings.ordersPerWeek} erledigt</p>
+    ${progressCard()}
 
     ${toReview.length ? `<div class="section-title" style="margin-top:6px">Nochmal anhören <small>${toReview.length}</small></div>
       ${toReview.map(orderCard).join('')}
@@ -354,6 +385,30 @@ function renderOrders() {
     ${done.length ? `<div class="section-title">Zuletzt abgegeben <small><button class="btn plain small" data-action="tab" data-tab="library">Alle</button></small></div>
       ${done.map(orderCard).join('')}` : ''}
   `;
+}
+
+function progressCard() {
+  const p = progress();
+  return `<div class="level glass">
+    <div class="level-badge">${p.level}</div>
+    <div class="level-main">
+      <div class="level-top"><b>Level ${p.level}</b><span>${p.xp} / ${p.next} XP</span></div>
+      <div class="progress" style="margin-top:6px"><i style="width:${Math.round(Math.min(1, p.frac) * 100)}%"></i></div>
+      <div class="level-stats"><span>🔥 ${p.streak} ${p.streak === 1 ? 'Woche' : 'Wochen'} Serie</span><span>🎯 ${p.skills.size} Skills gelernt</span></div>
+    </div>
+  </div>`;
+}
+
+function skillsOverview() {
+  const learned = progress().skills;
+  const rows = Object.entries(SKILLS).map(([area, list]) => {
+    const n = list.filter(([name]) => learned.has(name)).length;
+    return `<div class="row"><span class="label">${esc(area)}</span>
+      <div class="progress" style="width:90px;margin:0"><i style="width:${Math.round((n / list.length) * 100)}%"></i></div>
+      <span class="value" style="min-width:44px">${n}/${list.length}</span></div>`;
+  }).join('');
+  return `<div class="group-title">Skills</div><div class="group glass">${rows}</div>
+    <p class="footnote">Jeder Auftrag bringt eine Lern-Challenge mit. Neue Techniken werden bevorzugt, schwierigere kommen mit höherem Level.</p>`;
 }
 
 function allTracks() {
@@ -422,6 +477,8 @@ function renderLibrary() {
         <h3>${tracks.length ? 'Nichts gefunden' : 'Noch keine Uploads'}</h3>
         <p>${tracks.length ? 'Versuch einen anderen Filter.' : 'Lade deinen ersten Beat bei einem Auftrag hoch – oder starte ein eigenes Projekt.'}</p>
       </div>`}
+
+    ${skillsOverview()}
   `;
 }
 
@@ -629,6 +686,12 @@ function renderOrderSheet(o) {
     </div>` : `<h2 style="font-size:28px;margin:12px 4px 4px">${esc(orderTitle(o))}</h2>
       ${o.type === 'video' ? `<div class="thread"><div class="bubble them">🎬 ${esc(o.brief)}</div></div>` : ''}`}
 
+    ${o.challenge ? `<div class="challenge glass">
+      <div class="challenge-ico">🎯</div>
+      <div><span>Lern-Challenge · ${esc(o.challenge.area)} · ${'●'.repeat(o.challenge.lvl)}${'○'.repeat(3 - o.challenge.lvl)}</span>
+        <b>${esc(o.challenge.name)}</b>
+        ${o.challenge.done === true ? '<span style="color:var(--green)">✓ Umgesetzt</span>' : o.challenge.done === false ? '<span>Nicht umgesetzt – kommt wieder dran</span>' : ''}</div>
+    </div>` : ''}
     ${renderReview(o)}
     ${o.type === 'video' ? `<button class="btn plain" data-action="open-order" data-id="${o.sourceOrderId}">🎧 Zum Song</button>` : ''}
     ${state.video && o.submissions.some((x) => x.id === state.video.subId) ? '<div id="videoSlot"></div>' : ''}
@@ -672,6 +735,10 @@ function renderReview(o) {
       <div><b>${free ? '🎬 Freigegeben für Videos' : 'Nicht freigegeben – bleibt Übung 💪'}</b>
         <span>Deine Bewertung vom ${fmtDate(r.ratedAt, { day: 'numeric', month: 'short' })}${free ? '' : `. Ab ${thr}/10 gibt's ein Video.`}</span>
         ${free && r.videoOrderId ? `<button class="btn small" style="margin-top:10px" data-action="open-order" data-id="${r.videoOrderId}">Zum Video-Auftrag</button>` : ''}</div>
+    </div>
+    <div class="group glass">
+      <label class="row col"><span class="label" style="font-size:13px;color:var(--label-2)">Was nimmst du mit? Was machst du nächstes Mal anders?</span>
+        <textarea data-lesson="${o.id}" placeholder="z. B. 808 war zu laut, Hook früher bringen …">${esc(r.lesson || '')}</textarea></label>
     </div>`;
   }
   if (Date.now() < r.opensAt) {
@@ -928,7 +995,7 @@ const actions = {
     const active = state.orders.filter((o) => isActive(o) && o.type !== 'own').length;
     if (active >= state.settings.maxActive &&
         !confirm(`Du hast schon ${active} aktive Aufträge (Limit ${state.settings.maxActive}). Trotzdem einen neuen?`)) return;
-    const o = generateOrder(state.settings);
+    const o = generateOrder(state.settings, genOpts());
     await receiveOrder(o);
     openSheet({ kind: 'order', id: o.id });
   },
@@ -953,6 +1020,10 @@ const actions = {
   async deliver(el) {
     const o = state.orders.find((x) => x.id === el.dataset.id);
     const latest = o.submissions.reduce((a, b) => (b.version > a.version ? b : a));
+    if (o.challenge && o.challenge.done == null) {
+      o.challenge.done = confirm(`🎯 Hast du die Lern-Challenge umgesetzt?\n\n„${o.challenge.name}“\n\nOK = Ja · Abbrechen = Nein`);
+    }
+    const before = progress();
     o.status = 'delivered';
     o.deliveredAt = Date.now();
     o.deliveredSubmissionId = latest.id;
@@ -962,7 +1033,9 @@ const actions = {
       o.review = { opensAt: reviewOpensAt(o.deliveredAt), listenedSec: 0, duration: latest.duration || null, rating: null };
     }
     await saveOrder(o);
-    toast(o.review ? `Abgegeben ✅ Morgen nochmal anhören & bewerten` : selfMade(o) ? 'Fertig ✅' : 'Abgegeben ✅');
+    const after = progress();
+    if (after.level > before.level) setTimeout(() => toast(`⬆️ Level ${after.level}! Schwierigere Challenges freigeschaltet`), 2800);
+    toast(`+${after.xp - before.xp} XP · ` + (o.review ? `Abgegeben ✅ Morgen nochmal anhören & bewerten` : selfMade(o) ? 'Fertig ✅' : 'Abgegeben ✅'));
     render(); renderSheet();
   },
 
@@ -1014,10 +1087,11 @@ const actions = {
     const o = state.orders.find((x) => x.id === el.dataset.id);
     const n = Number(el.dataset.v);
     if (!confirm(`${n}/10 – sicher? Die Bewertung ist endgültig.`)) return;
+    const before = progress();
     o.review.rating = n;
     o.review.ratedAt = Date.now();
     if (n >= state.settings.videoThreshold) {
-      const v = createVideoOrder(o);
+      const v = createVideoOrder(o, genOpts());
       o.review.videoOrderId = v.id;
       await saveOrder(v);
       toast('🎬 Freigegeben! Neuer Video-Auftrag ist da.');
@@ -1026,13 +1100,15 @@ const actions = {
     }
     if (state.playing?.orderId === o.id) audio.pause();
     await saveOrder(o);
+    const after = progress();
+    setTimeout(() => toast(after.level > before.level ? `⬆️ Level ${after.level}! +${after.xp - before.xp} XP` : `+${after.xp - before.xp} XP`), 2700);
     render(); renderSheet();
   },
 
   async 'reroll-video'(el) {
     const o = state.orders.find((x) => x.id === el.dataset.id);
     const src = state.orders.find((x) => x.id === o.sourceOrderId) || o;
-    const fresh = createVideoOrder(src, { concept: rerollConcept(o) });
+    const fresh = createVideoOrder(src, { concept: rerollConcept(o), ...genOpts() });
     Object.assign(o, { brief: fresh.brief, concept: fresh.concept, mood: fresh.mood });
     await saveOrder(o);
     renderSheet();
@@ -1051,7 +1127,7 @@ const actions = {
 
   'new-own': () => openSheet({ kind: 'own' }),
   async 'create-own'() {
-    const o = createOwnProject({ title: $('#ownTitle').value.trim(), genre: $('#ownGenre').value });
+    const o = createOwnProject({ title: $('#ownTitle').value.trim(), genre: $('#ownGenre').value, ...genOpts() });
     await saveOrder(o);
     openSheet({ kind: 'order', id: o.id });
     render();
@@ -1175,8 +1251,8 @@ const actions = {
 async function refreshPending(keepTime) {
   const old = await db.get('pendingOrder');
   const p = keepTime && old
-    ? generateOrder(state.settings, { at: old.createdAt })
-    : generateOrder(state.settings, { at: nextArrival(state.settings) });
+    ? generateOrder(state.settings, { at: old.createdAt, ...genOpts() })
+    : generateOrder(state.settings, { at: nextArrival(state.settings), ...genOpts() });
   await db.set('pendingOrder', p);
   state.nextOrderAt = p.createdAt;
   scheduleNative(p);
@@ -1208,6 +1284,10 @@ document.addEventListener('change', async (e) => {
   if (el.dataset.setting) {
     state.settings[el.dataset.setting] = el.value.trim();
     await saveSettings();
+  } else if (el.dataset.lesson) {
+    const o = state.orders.find((x) => x.id === el.dataset.lesson);
+    o.review.lesson = el.value;
+    await saveOrder(o);
   } else if (el.dataset.note) {
     const o = state.orders.find((x) => x.id === el.dataset.note);
     o.notes = el.value;
@@ -1279,7 +1359,7 @@ async function boot() {
   // First launch: welcome order so the app isn't empty.
   if (!(await db.get('welcomed'))) {
     await db.set('welcomed', true);
-    await saveOrder(generateOrder(state.settings, { type: 'instrumental' }), { silent: true });
+    await saveOrder(generateOrder(state.settings, { type: 'instrumental', ...genOpts() }), { silent: true });
     // Android app: ask once for notification permission right away.
     if (isNative && (await requestNotificationPermission())) {
       state.settings.notifications = true;
