@@ -9,6 +9,8 @@ export const ORDER_TYPES = {
   hook:         { label: 'Hook / Feature', short: 'Hook', icon: '🪝', days: [3, 6], budget: [60, 200] },
   remix:        { label: 'Remix / Flip', short: 'Remix', icon: '🔁', days: [4, 8], budget: [50, 180] },
   own:          { label: 'Eigenes Projekt', short: 'Eigenes', icon: '⭐️', days: [0, 0], budget: [0, 0], manualOnly: true },
+  // Only unlocked by your own rating (see createVideoOrder) – never random.
+  video:        { label: 'Video / TikTok', short: 'Video', icon: '🎬', days: [5, 8], budget: [0, 0], manualOnly: true },
 };
 
 export const GENRES = {
@@ -76,6 +78,51 @@ const pickN = (arr, n) => [...arr].sort(() => Math.random() - 0.5).slice(0, n);
 export const uid = () =>
   (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 
+// ---- Video concepts ----------------------------------------------------
+// {song} = title of the song, {genre} = its genre.
+const VIDEO_CONCEPTS = [
+  { format: 'TikTok / Reel', ratio: '9:16', length: '15–30 Sek.', idea: 'Lip-Sync zur stärksten Line aus „{song}“ – ein Take, harter Schnitt auf den Drop.' },
+  { format: 'TikTok / Reel', ratio: '9:16', length: '20–40 Sek.', idea: '„Wie ich diesen {genre}-Beat gebaut habe“: FL-Studio-Screen-Recording, Layer für Layer, am Ende der fertige Song.' },
+  { format: 'TikTok / Reel', ratio: '9:16', length: '15 Sek.', idea: 'Hook von „{song}“ mit großem Text-Overlay (Lyrics), ruhige Kamerafahrt oder Nacht-Aufnahmen.' },
+  { format: 'TikTok / Reel', ratio: '9:16', length: '30 Sek.', idea: 'Studio-Session: Kopfhörer auf, Mic-Performance von „{song}“, dazwischen Reaction-Shots.' },
+  { format: 'YouTube Short', ratio: '9:16', length: '30–60 Sek.', idea: 'Vorher/Nachher: erst die rohe Idee, dann die finale Version von „{song}“.' },
+  { format: 'Visualizer', ratio: '16:9', length: 'ganzer Song', idea: 'Loop-Visualizer für „{song}“: Cover/Artwork mit Waveform oder langsam animiertem Hintergrund.' },
+  { format: 'Musikvideo', ratio: '16:9', length: 'ganzer Song', idea: 'Low-Budget-Musikvideo zu „{song}“: 3 Locations, Performance + B-Roll, Schnitt im Takt ({genre}-Vibe).' },
+  { format: 'Lyric Video', ratio: '16:9 oder 9:16', length: 'ganzer Song', idea: 'Lyric-Video zu „{song}“: Text synchron zum Song, Schrift passend zum {genre}-Vibe.' },
+];
+
+export function createVideoOrder(song, { concept } = {}) {
+  const now = Date.now();
+  const c = concept || pick(VIDEO_CONCEPTS);
+  const songTitle = song.title || `${ORDER_TYPES[song.type]?.label || 'Song'} für ${song.client}`;
+  const vars = { song: songTitle, genre: song.genre };
+  return {
+    id: uid(), client: 'Du', type: 'video', genre: song.genre,
+    title: `Video: ${songTitle}`,
+    brief: fill(c.idea, vars),
+    concept: c,
+    sourceOrderId: song.id,
+    bpm: null, key: null, mood: c.format, instruments: [],
+    budget: 0, createdAt: now,
+    deadline: deadlineIn(randInt(ORDER_TYPES.video.days[0], ORDER_TYPES.video.days[1])),
+    status: 'new', submissions: [], deliveredAt: null, deliveredSubmissionId: null,
+    reply: null, rating: null, updatedAt: now,
+  };
+}
+
+export const rerollConcept = (order) => {
+  const others = VIDEO_CONCEPTS.filter((c) => c.idea !== order.concept?.idea);
+  return pick(others);
+};
+
+// Self-review opens on the calendar day after delivery.
+export function reviewOpensAt(deliveredAt) {
+  const d = new Date(deliveredAt);
+  d.setDate(d.getDate() + 1);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
 export const DEFAULT_SETTINGS = {
   artistName: '',
   ordersPerWeek: 2,
@@ -86,6 +133,7 @@ export const DEFAULT_SETTINGS = {
   genres: ['Trap', 'Boom Bap', 'R&B', 'Deutschrap', 'Lo-Fi'],
   types: { instrumental: 3, full_song: 1, vocal_chain: 1, hook: 1, remix: 1 }, // Gewichtung, 0 = aus
   notifications: false,
+  videoThreshold: 9, // eigene Bewertung (1–10), ab der ein Song fürs Video freigegeben wird
 };
 
 function weightedType(weights) {

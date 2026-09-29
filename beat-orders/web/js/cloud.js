@@ -7,6 +7,8 @@
 
 import { db } from './db.js';
 
+const MAX_UPLOAD = 50 * 1024 * 1024;
+
 let client = null;
 let cfgKey = '';
 
@@ -61,7 +63,7 @@ export const cloud = {
     if (c) await c.auth.signOut();
   },
 
-  // Full two-way sync. Returns { pulled, pushed, uploaded }.
+  // Full two-way sync. Returns { pulled, pushed, uploaded, skipped }.
   async sync() {
     const c = await getClient();
     const user = await this.user();
@@ -71,7 +73,7 @@ export const cloud = {
     if (error) throw error;
     const remote = new Map(rows.map((r) => [r.id, r.data]));
     const local = new Map((await db.allOrders()).map((o) => [o.id, o]));
-    let pulled = 0, pushed = 0, uploaded = 0;
+    let pulled = 0, pushed = 0, uploaded = 0, skipped = 0;
 
     // Remote → local
     for (const [id, r] of remote) {
@@ -90,11 +92,13 @@ export const cloud = {
         if (sub.remotePath) continue;
         const f = await db.getFile(sub.fileId);
         if (!f) continue;
+        // Supabase free tier: max 50 MB per file (long videos) → keep local only.
+        if (f.blob.size > MAX_UPLOAD) { skipped++; continue; }
         const path = `${user.id}/${sub.fileId}`;
         const up = await c.storage.from('beats').upload(path, f.blob, {
           upsert: true, contentType: f.blob.type || 'application/octet-stream',
         });
-        if (up.error) throw up.error;
+        if (up.error) { console.warn('upload', sub.name, up.error); skipped++; continue; }
         sub.remotePath = path;
         changed = true;
         uploaded++;
@@ -114,7 +118,7 @@ export const cloud = {
     }
 
     await db.set('lastSync', Date.now());
-    return { pulled, pushed, uploaded };
+    return { pulled, pushed, uploaded, skipped };
   },
 
   // Fetch a file that only exists in the cloud and cache it locally.

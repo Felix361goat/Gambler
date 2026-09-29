@@ -1,7 +1,7 @@
 import { db, requestPersistence } from './db.js';
 import {
   ORDER_TYPES, GENRES, DEFAULT_SETTINGS, generateOrder, createOwnProject,
-  clientReply, nextArrival, uid,
+  clientReply, nextArrival, uid, createVideoOrder, rerollConcept, reviewOpensAt,
 } from './generator.js';
 import { cloud } from './cloud.js';
 import {
@@ -31,6 +31,12 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const isActive = (o) => !o.deleted && (o.status === 'new' || o.status === 'in_progress');
 const visible = (o) => !o.deleted && o.status !== 'declined';
 const DAY = 86400000;
+const selfMade = (o) => o.type === 'own' || o.type === 'video'; // no "client"
+const isAudioFile = (s) => (s.mime || '').startsWith('audio/') || /\.(mp3|wav|m4a|aac|flac|aiff?|ogg)$/i.test(s.name);
+const isVideoFile = (s) => (s.mime || '').startsWith('video/') || /\.(mp4|mov|m4v|webm|3gp)$/i.test(s.name);
+// Self-review: opens the day after delivery, then rate 1–10.
+const reviewOpen = (o) => visible(o) && o.review && !o.review.rating && Date.now() >= o.review.opensAt;
+const reviewWaiting = (o) => visible(o) && o.review && !o.review.rating && Date.now() < o.review.opensAt;
 
 function hue(str) {
   let h = 0;
@@ -77,7 +83,7 @@ function dueInfo(o) {
 }
 
 function orderTitle(o) {
-  if (o.type === 'own') return o.title || 'Eigenes Projekt';
+  if (selfMade(o)) return o.title || 'Eigenes Projekt';
   return `${ORDER_TYPES[o.type]?.label || o.type} für ${o.client}`;
 }
 
@@ -130,7 +136,7 @@ async function runSync(quiet) {
   try {
     const r = await cloud.sync();
     state.orders = await db.allOrders();
-    if (!quiet) toast(`Synchronisiert ☁️ ↓${r.pulled} ↑${r.pushed}${r.uploaded ? ` · ${r.uploaded} Dateien` : ''}`);
+    if (!quiet) toast(`Synchronisiert ☁️ ↓${r.pulled} ↑${r.pushed}${r.uploaded ? ` · ${r.uploaded} Dateien` : ''}${r.skipped ? ` · ${r.skipped} nur lokal (zu groß)` : ''}`);
     render();
     if (state.sheet) renderSheet();
   } catch (e) {
@@ -147,7 +153,7 @@ async function runSync(quiet) {
 // its arrival time. That way the Android app can schedule a notification with
 // the real client + brief even while the app is closed.
 
-const activeCount = () => state.orders.filter((o) => isActive(o) && o.type !== 'own').length;
+const activeCount = () => state.orders.filter((o) => isActive(o) && !selfMade(o)).length;
 
 async function newPending(from = Date.now()) {
   const p = generateOrder(state.settings, { at: nextArrival(state.settings, from) });
@@ -208,6 +214,17 @@ async function scheduleNative(pending) {
       extra: { orderId: o.id },
     });
   }
+  for (const o of state.orders.filter((x) => visible(x) && x.review && !x.review.rating)) {
+    const at = new Date(o.review.opensAt);
+    at.setHours(state.settings.eveningStart, 0, 0, 0);
+    list.push({
+      id: notifId(o.id + ':review'),
+      title: `🎧 Nochmal anhören: ${orderTitle(o)}`,
+      body: `Mit frischen Ohren bewerten – ab ${state.settings.videoThreshold}/10 gibt's einen Video-Auftrag 🎬`,
+      at: at.getTime(),
+      extra: { orderId: o.id },
+    });
+  }
   try { await scheduleAll(list); } catch (e) { console.warn('schedule', e); }
 }
 
@@ -231,7 +248,7 @@ async function notify(order) {
 }
 
 function updateBadge() {
-  const n = state.orders.filter((o) => !o.deleted && o.status === 'new').length;
+  const n = state.orders.filter((o) => (!o.deleted && o.status === 'new') || reviewOpen(o)).length;
   const b = $('#tabBadge');
   b.hidden = n === 0;
   b.textContent = n;
@@ -273,14 +290,17 @@ function orderCard(o) {
   const T = ORDER_TYPES[o.type];
   const due = dueInfo(o);
   const frac = o.deadline ? Math.min(1, Math.max(0, (Date.now() - o.createdAt) / (o.deadline - o.createdAt))) : 0;
-  const status = o.status === 'new'
-    ? '<span class="pill accent">Neu</span>'
-    : o.status === 'in_progress' ? '<span class="pill">In Arbeit</span>' : '';
+  const thr = state.settings.videoThreshold;
+  const status = o.status === 'new' ? '<span class="pill accent">Neu</span>'
+    : o.status === 'in_progress' ? '<span class="pill">In Arbeit</span>'
+    : reviewOpen(o) ? '<span class="pill accent">Bewerten</span>'
+    : reviewWaiting(o) ? '<span class="pill">🔒 Morgen</span>'
+    : o.review?.rating ? `<span class="pill ${o.review.rating >= thr ? 'green' : ''}">${o.review.rating}/10${o.review.rating >= thr ? ' 🎬' : ''}</span>` : '';
   return `<button class="card glass" data-action="open-order" data-id="${o.id}" style="display:block;width:100%;text-align:left">
     <div class="order-top">
-      <div class="avatar" style="background:${gradient(o.client)}">${o.type === 'own' ? '⭐️' : esc(initials(o.client))}</div>
+      <div class="avatar" style="background:${gradient(o.type === 'video' ? o.title : o.client)}">${selfMade(o) ? T.icon : esc(initials(o.client))}</div>
       <div class="order-meta">
-        <div class="order-client">${esc(o.type === 'own' ? orderTitle(o) : o.client)}</div>
+        <div class="order-client">${esc(selfMade(o) ? orderTitle(o) : o.client)}</div>
         <div class="order-sub">${T.icon} ${esc(T.label)} · ${esc(o.genre)}${o.bpm ? ` · ${o.bpm} BPM` : ''}</div>
       </div>
       ${status}
@@ -288,7 +308,7 @@ function orderCard(o) {
     ${o.type === 'own' ? '' : `<p class="order-brief">${esc(o.brief)}</p>`}
     <div class="order-foot">
       <span class="pill ${due.cls}">${due.text}</span>
-      ${o.submissions.length ? `<span class="pill">🎧 ${o.submissions.length} Version${o.submissions.length > 1 ? 'en' : ''}</span>` : ''}
+      ${o.submissions.length ? `<span class="pill">${o.type === 'video' ? '🎬' : '🎧'} ${o.submissions.length} Version${o.submissions.length > 1 ? 'en' : ''}</span>` : ''}
       <span class="spacer"></span>
       ${o.budget ? `<span class="pill green">${o.budget} €</span>` : ''}
     </div>
@@ -298,6 +318,7 @@ function orderCard(o) {
 
 function renderOrders() {
   const active = state.orders.filter(isActive).sort((a, b) => (a.deadline || Infinity) - (b.deadline || Infinity));
+  const toReview = state.orders.filter(reviewOpen).sort((a, b) => a.deliveredAt - b.deliveredAt);
   const done = state.orders.filter((o) => visible(o) && o.status === 'delivered').sort((a, b) => b.deliveredAt - a.deliveredAt).slice(0, 5);
   const weekAgo = Date.now() - 7 * DAY;
   const doneWeek = state.orders.filter((o) => visible(o) && o.status === 'delivered' && o.deliveredAt > weekAgo).length;
@@ -315,6 +336,10 @@ function renderOrders() {
       <button class="icon-btn glass" data-action="request-order" aria-label="Auftrag anfordern" style="margin-bottom:6px">${ICON.plus}</button>
     </div>
     <p class="subtitle">Hi${name} 👋 Diese Woche: ${doneWeek}/${state.settings.ordersPerWeek} erledigt</p>
+
+    ${toReview.length ? `<div class="section-title" style="margin-top:6px">Nochmal anhören <small>${toReview.length}</small></div>
+      ${toReview.map(orderCard).join('')}
+      <div class="section-title">Aufträge</div>` : ''}
 
     ${active.length ? active.map(orderCard).join('') : `
       <div class="empty glass">
@@ -343,8 +368,9 @@ function allTracks() {
 function renderLibrary() {
   const { type, genre, q } = state.filter;
   const tracks = allTracks();
-  const delivered = state.orders.filter((o) => visible(o) && o.status === 'delivered' && o.type !== 'own');
+  const delivered = state.orders.filter((o) => visible(o) && o.status === 'delivered' && !selfMade(o));
   const onTime = delivered.filter((o) => o.deliveredAt <= o.deadline).length;
+  const rated = state.orders.filter((o) => visible(o) && o.review?.rating);
   const genresUsed = [...new Set(tracks.map((t) => t.o.genre))].sort();
 
   const ql = q.trim().toLowerCase();
@@ -379,7 +405,8 @@ function renderLibrary() {
     <div class="stats">
       <div class="stat glass"><b>${delivered.length}</b><span>Abgegeben</span></div>
       <div class="stat glass"><b>${delivered.length ? Math.round((onTime / delivered.length) * 100) : 0}%</b><span>Pünktlich</span></div>
-      <div class="stat glass"><b>${tracks.length}</b><span>Uploads</span></div>
+      <div class="stat glass"><b>${rated.length ? (rated.reduce((a, o) => a + o.review.rating, 0) / rated.length).toFixed(1) : '–'}</b><span>Ø Bewertung</span></div>
+      <div class="stat glass"><b>${rated.filter((o) => o.review.rating >= state.settings.videoThreshold).length}</b><span>🎬 Frei</span></div>
     </div>
 
     <label class="search">${ICON.search}<input type="search" placeholder="Suchen" value="${esc(q)}" data-input="search" /></label>
@@ -401,15 +428,18 @@ function renderLibrary() {
 function trackRow({ o, s }) {
   const T = ORDER_TYPES[o.type];
   const playing = state.playing?.subId === s.id;
-  const isAudio = (s.mime || '').startsWith('audio/') || /\.(mp3|wav|m4a|aac|flac|aiff?|ogg)$/i.test(s.name);
+  const isAudio = isAudioFile(s);
   const final = o.deliveredSubmissionId === s.id;
+  const score = final && o.review?.rating ? ` · ${o.review.rating}/10${o.review.rating >= state.settings.videoThreshold ? ' 🎬' : ''}` : '';
   return `<div class="track glass ${playing ? 'playing' : ''}">
     <button class="art" style="background:${gradient(o.genre)}" data-action="open-order" data-id="${o.id}">${T.icon}</button>
     <button class="t-main" style="text-align:left" data-action="open-order" data-id="${o.id}">
       <div class="t-title">${esc(orderTitle(o))}${final ? ' ✅' : ''}</div>
-      <div class="t-sub">${esc(o.genre)} · v${s.version}${s.duration ? ` · ${fmtDuration(s.duration)}` : ''} · ${fmtDate(s.uploadedAt, { day: 'numeric', month: 'short' })}</div>
+      <div class="t-sub">${esc(o.genre)} · v${s.version}${s.duration ? ` · ${fmtDuration(s.duration)}` : ''} · ${fmtDate(s.uploadedAt, { day: 'numeric', month: 'short' })}${score}</div>
     </button>
-    ${isAudio
+    ${isVideoFile(s)
+      ? `<button class="play-dot" data-action="play-video" data-order="${o.id}" data-sub="${s.id}" aria-label="Video ansehen">${ICON.play}</button>`
+      : isAudio
       ? `<button class="play-dot" data-action="play" data-order="${o.id}" data-sub="${s.id}" aria-label="Abspielen">${playing && !audio.paused ? ICON.pause : ICON.play}</button>`
       : `<button class="play-dot" data-action="share-file" data-order="${o.id}" data-sub="${s.id}" aria-label="Teilen">${ICON.share}</button>`}
   </div>`;
@@ -447,8 +477,9 @@ function renderSettings() {
       <div class="row"><span class="label">Abends ab</span><span class="value">${s.eveningStart}:00</span>${stepper('eveningStart', 6, 21)}</div>
       <div class="row"><span class="label">Bis</span><span class="value">${s.eveningEnd}:00</span>${stepper('eveningEnd', 12, 24)}</div>
       <div class="row"><span class="label">Auch am Wochenende</span>${toggle('weekends', s.weekends)}</div>
+      <div class="row"><span class="label">Video-Freigabe ab</span><span class="value">${s.videoThreshold}/10</span>${stepper('videoThreshold', 5, 10)}</div>
     </div>
-    <p class="footnote">Aufträge kommen nur in deiner Freizeit rein (werktags abends, optional am Wochenende) – passend zu deinem Vollzeitjob.</p>
+    <p class="footnote">Aufträge kommen nur in deiner Freizeit rein (werktags abends, optional am Wochenende) – passend zu deinem Vollzeitjob. Am Tag nach der Abgabe hörst du deinen Track nochmal an und bewertest ihn – ab der Video-Freigabe bekommst du einen Video-/TikTok-Auftrag dazu.</p>
 
     <div class="group-title">Auftragsarten</div>
     <div class="group glass">${typeRows}</div>
@@ -509,6 +540,9 @@ function renderCloudSettings() {
 // ---------------------------------------------------------------- sheets --
 
 function openSheet(sheet) {
+  // Switching to another order? Stop a video that belongs to the old one.
+  const target = sheet.kind === 'order' && state.orders.find((o) => o.id === sheet.id);
+  if (state.video && !target?.submissions.some((x) => x.id === state.video.subId)) closeVideo();
   state.sheet = sheet;
   $('#sheetLayer').hidden = false;
   $('#sheet').classList.remove('closing');
@@ -517,9 +551,16 @@ function openSheet(sheet) {
   $('#sheet').scrollTop = 0;
 }
 
+function closeVideo() {
+  if (!state.video) return;
+  URL.revokeObjectURL(state.video.url);
+  state.video = null;
+}
+
 function closeSheet() {
   if (!state.sheet) return;
   state.sheet = null;
+  closeVideo();
   $('#sheet').classList.add('closing');
   $('.sheet-dim').classList.add('closing');
   setTimeout(() => { if (!state.sheet) $('#sheetLayer').hidden = true; }, 240);
@@ -532,7 +573,16 @@ function renderSheet() {
   let html = '';
   if (s.kind === 'order') html = renderOrderSheet(state.orders.find((o) => o.id === s.id));
   else if (s.kind === 'own') html = renderOwnSheet();
+  const oldVideo = $('#sheet video');
+  if (oldVideo) oldVideo.remove(); // detach so it keeps playing
   $('#sheet').innerHTML = `<div class="grabber"></div>${html}`;
+  const slot = $('#videoSlot');
+  if (slot && state.video) {
+    const v = oldVideo && oldVideo.src === state.video.url ? oldVideo : Object.assign(document.createElement('video'), {
+      src: state.video.url, controls: true, playsInline: true, autoplay: true, className: 'video-preview',
+    });
+    slot.replaceWith(v);
+  }
 }
 
 function renderOrderSheet(o) {
@@ -542,7 +592,13 @@ function renderOrderSheet(o) {
   const delivered = o.status === 'delivered';
   const subs = [...o.submissions].sort((a, b) => b.version - a.version);
 
-  const specs = [
+  const c = o.concept;
+  const specs = o.type === 'video' ? [
+    ['Format', c?.format],
+    ['Seitenverhältnis', c?.ratio],
+    ['Länge', c?.length],
+    o.deadline && ['Deadline', `${fmtDate(o.deadline)}`],
+  ].filter(Boolean) : [
     ['Art', `${T.icon} ${T.label}`],
     ['Genre', o.genre],
     o.bpm && ['Tempo', `${o.bpm} BPM`],
@@ -558,7 +614,7 @@ function renderOrderSheet(o) {
   return `
     <div class="sheet-head">
       <button class="btn plain" data-action="close-sheet">Schließen</button>
-      <h2>${esc(o.type === 'own' ? 'Projekt' : o.client)}</h2>
+      <h2>${esc(o.type === 'own' ? 'Projekt' : o.type === 'video' ? 'Video' : o.client)}</h2>
       <span style="width:80px;text-align:right"><span class="pill ${due.cls}">${delivered ? '✓' : due.text.replace('Noch ', '')}</span></span>
     </div>
 
@@ -570,42 +626,94 @@ function renderOrderSheet(o) {
       ${delivered ? `<div class="bubble me">Hier ist dein ${esc(T.short)} 🎧</div>
         <div class="thread-meta">${fmtDate(o.deliveredAt)}, ${fmtTime(o.deliveredAt)}</div>
         <div class="bubble them">${esc(o.reply)}<br><span class="stars">${'★'.repeat(o.rating || 0)}${'☆'.repeat(5 - (o.rating || 0))}</span></div>` : ''}
-    </div>` : `<h2 style="font-size:28px;margin:12px 4px 4px">${esc(orderTitle(o))}</h2>`}
+    </div>` : `<h2 style="font-size:28px;margin:12px 4px 4px">${esc(orderTitle(o))}</h2>
+      ${o.type === 'video' ? `<div class="thread"><div class="bubble them">🎬 ${esc(o.brief)}</div></div>` : ''}`}
+
+    ${renderReview(o)}
+    ${o.type === 'video' ? `<button class="btn plain" data-action="open-order" data-id="${o.sourceOrderId}">🎧 Zum Song</button>` : ''}
+    ${state.video && o.submissions.some((x) => x.id === state.video.subId) ? '<div id="videoSlot"></div>' : ''}
 
     <div class="specs">
       ${specs.map((sp) => `<div class="spec ${sp.wide ? 'wide' : ''}"><span>${sp[0]}</span><b>${esc(sp[1])}</b></div>`).join('')}
     </div>
 
-    ${o.status === 'new' ? `
+    ${o.status === 'new' && o.type === 'video' ? `
+      <button class="btn" data-action="accept" data-id="${o.id}">Los geht's 🎬</button>
+      <button class="btn secondary" data-action="reroll-video" data-id="${o.id}" style="margin-top:10px">🎲 Anderes Konzept</button>
+    ` : o.status === 'new' ? `
       <button class="btn" data-action="accept" data-id="${o.id}">Auftrag annehmen</button>
       <button class="btn danger" data-action="decline" data-id="${o.id}" style="margin-top:6px">Ablehnen</button>
     ` : `
       <div class="section-title" style="margin-top:14px">Versionen <small>${subs.length}</small></div>
-      ${subs.length ? subs.map((s) => subRow(o, s)).join('') : '<p class="footnote" style="margin:0 4px 10px">Noch nichts hochgeladen. Exportiere aus FL Studio (MP3/WAV) und lade die Datei hier hoch.</p>'}
-      <button class="btn ${subs.length ? 'secondary' : ''}" data-action="upload" data-id="${o.id}">⬆︎ ${o.type === 'vocal_chain' ? 'Preset / Demo hochladen' : 'Datei hochladen'}</button>
-      ${!delivered && subs.length ? `<button class="btn" style="margin-top:10px" data-action="deliver" data-id="${o.id}">${o.type === 'own' ? 'Als fertig markieren' : `v${subs[0].version} abgeben`}</button>` : ''}
+      ${subs.length ? subs.map((s) => subRow(o, s)).join('') : `<p class="footnote" style="margin:0 4px 10px">${o.type === 'video'
+        ? 'Noch nichts hochgeladen. Schneide das Video (z. B. CapCut) und lade es hier hoch.'
+        : 'Noch nichts hochgeladen. Exportiere aus FL Studio (MP3/WAV) und lade die Datei hier hoch.'}</p>`}
+      <button class="btn ${subs.length ? 'secondary' : ''}" data-action="upload" data-id="${o.id}">⬆︎ ${o.type === 'vocal_chain' ? 'Preset / Demo hochladen' : o.type === 'video' ? 'Video hochladen' : 'Datei hochladen'}</button>
+      ${!delivered && subs.length ? `<button class="btn" style="margin-top:10px" data-action="deliver" data-id="${o.id}">${selfMade(o) ? 'Als fertig markieren' : `v${subs[0].version} abgeben`}</button>` : ''}
     `}
 
     <div class="group glass" style="margin-top:22px">
-      <label class="row col"><span class="label" style="font-size:13px;color:var(--label-2)">Notizen (Samples, Plugins, Ideen …)</span>
-        <textarea data-note="${o.id}" placeholder="z. B. Serum Preset „Dark Pluck“, 808 aus Kit X …">${esc(o.notes || '')}</textarea></label>
+      <label class="row col"><span class="label" style="font-size:13px;color:var(--label-2)">Notizen${o.type === 'video' ? '' : ' (Samples, Plugins, Ideen …)'}</span>
+        <textarea data-note="${o.id}" placeholder="${o.type === 'video' ? 'z. B. Drehorte, Outfits, Shots, CapCut-Effekte …' : 'z. B. Serum Preset „Dark Pluck“, 808 aus Kit X …'}">${esc(o.notes || '')}</textarea></label>
     </div>
     <button class="btn danger" data-action="delete-order" data-id="${o.id}" style="margin-top:8px">${o.type === 'own' ? 'Projekt' : 'Auftrag'} löschen</button>
   `;
 }
 
+// "Sleep on it" review: day after delivery, listen again, rate 1–10.
+function renderReview(o) {
+  const r = o.review;
+  if (!r || o.deleted) return '';
+  const thr = state.settings.videoThreshold;
+  if (r.rating) {
+    const free = r.rating >= thr;
+    return `<div class="review glass">
+      <div class="review-score ${free ? 'free' : ''}">${r.rating}<small>/10</small></div>
+      <div><b>${free ? '🎬 Freigegeben für Videos' : 'Nicht freigegeben – bleibt Übung 💪'}</b>
+        <span>Deine Bewertung vom ${fmtDate(r.ratedAt, { day: 'numeric', month: 'short' })}${free ? '' : `. Ab ${thr}/10 gibt's ein Video.`}</span>
+        ${free && r.videoOrderId ? `<button class="btn small" style="margin-top:10px" data-action="open-order" data-id="${r.videoOrderId}">Zum Video-Auftrag</button>` : ''}</div>
+    </div>`;
+  }
+  if (Date.now() < r.opensAt) {
+    return `<div class="review glass">
+      <div class="review-score">🔒</div>
+      <div><b>${fmtDate(r.opensAt, { weekday: 'long' })} nochmal anhören</b>
+        <span>Erst mit etwas Abstand bewerten – dann hörst du ehrlicher. Ab ${thr}/10 wird der Song fürs Video freigegeben.</span></div>
+    </div>`;
+  }
+  const sub = o.submissions.find((x) => x.id === o.deliveredSubmissionId);
+  const need = (r.duration || sub?.duration || 0) * 0.9;
+  const pct = need ? Math.min(100, Math.round(((r.listenedSec || 0) / need) * 100)) : 0;
+  const ready = pct >= 100;
+  const playing = state.playing?.subId === sub?.id && !audio.paused;
+  return `<div class="review glass col">
+    <b>🎧 Nochmal komplett anhören & ehrlich bewerten</b>
+    <span>Ab ${thr}/10 wird der Song für Videos/TikToks freigegeben.</span>
+    ${sub ? `<div class="review-listen">
+      <button class="play-dot" data-action="play" data-order="${o.id}" data-sub="${sub.id}" aria-label="Abspielen">${playing ? ICON.pause : ICON.play}</button>
+      <div class="progress" style="flex:1;margin:0"><i style="width:${pct}%"></i></div>
+      <small>${ready ? '✓' : `${pct}%`}</small>
+    </div>` : '<span style="color:var(--red)">Die abgegebene Version fehlt.</span>'}
+    <div class="rate-grid">
+      ${Array.from({ length: 10 }, (_, i) => i + 1).map((n) => `<button class="rate-btn ${n >= thr ? 'hi' : ''}" data-action="rate" data-id="${o.id}" data-v="${n}" ${ready || !sub ? '' : 'disabled'}>${n}</button>`).join('')}
+    </div>
+    ${ready ? '' : '<span>Bewerten geht, sobald du ihn (fast) ganz gehört hast.</span>'}
+  </div>`;
+}
+
 function subRow(o, s) {
   const playing = state.playing?.subId === s.id;
-  const isAudio = (s.mime || '').startsWith('audio/') || /\.(mp3|wav|m4a|aac|flac|aiff?|ogg)$/i.test(s.name);
+  const isAudio = isAudioFile(s);
   const final = o.deliveredSubmissionId === s.id;
-  return `<div class="track glass ${playing ? 'playing' : ''}">
+  return `<div class="track glass ${playing || state.video?.subId === s.id ? 'playing' : ''}">
     <div class="art" style="background:${gradient(o.genre + s.version)}">v${s.version}</div>
     <div class="t-main">
       <div class="t-title">${esc(s.name)}${final ? ' ✅' : ''}</div>
       <div class="t-sub">${fmtDate(s.uploadedAt, { day: 'numeric', month: 'short' })} · ${fmtSize(s.size)}${s.duration ? ` · ${fmtDuration(s.duration)}` : ''}${s.remotePath ? ' · ☁️' : ''}</div>
     </div>
     <button class="play-dot" data-action="share-file" data-order="${o.id}" data-sub="${s.id}" aria-label="Teilen">${ICON.share}</button>
-    ${isAudio ? `<button class="play-dot" data-action="play" data-order="${o.id}" data-sub="${s.id}" aria-label="Abspielen">${playing && !audio.paused ? ICON.pause : ICON.play}</button>` : ''}
+    ${isVideoFile(s) ? `<button class="play-dot" data-action="play-video" data-order="${o.id}" data-sub="${s.id}" aria-label="Video ansehen">${ICON.play}</button>`
+      : isAudio ? `<button class="play-dot" data-action="play" data-order="${o.id}" data-sub="${s.id}" aria-label="Abspielen">${playing && !audio.paused ? ICON.pause : ICON.play}</button>` : ''}
     <button class="play-dot" data-action="delete-sub" data-order="${o.id}" data-sub="${s.id}" aria-label="Löschen" style="color:var(--red)">${ICON.close}</button>
   </div>`;
 }
@@ -694,6 +802,27 @@ function updateProgress() {
 }
 
 audio.addEventListener('timeupdate', updateProgress);
+
+// Count real listening time (seeking doesn't count) for the self-review.
+let lastPos = 0;
+audio.addEventListener('seeking', () => { lastPos = audio.currentTime; });
+audio.addEventListener('timeupdate', () => {
+  const t = audio.currentTime, d = t - lastPos;
+  lastPos = t;
+  const p = state.playing;
+  const o = p && state.orders.find((x) => x.id === p.orderId);
+  if (!o?.review || o.review.rating || p.subId !== o.deliveredSubmissionId || Date.now() < o.review.opensAt) return;
+  if (d <= 0 || d > 1.5) return;
+  const r = o.review;
+  const before = r.listenedSec || 0;
+  r.listenedSec = before + d;
+  if (audio.duration && isFinite(audio.duration)) r.duration = audio.duration;
+  const step = (r.duration || 60) * 0.05; // save/re-render every ~5 %
+  if (Math.floor(r.listenedSec / step) !== Math.floor(before / step)) {
+    saveOrder(o, { silent: true });
+    if (state.sheet?.id === o.id) renderSheet();
+  }
+});
 ['play', 'pause', 'ended'].forEach((ev) => audio.addEventListener(ev, () => {
   render();
   if (state.sheet) renderSheet();
@@ -736,13 +865,14 @@ function audioDuration(blob) {
 async function upload(orderId) {
   const o = state.orders.find((x) => x.id === orderId);
   if (!o) return;
-  const accept = o.type === 'vocal_chain' ? '' : 'audio/*,.mp3,.wav,.m4a,.aac,.flac,.aif,.aiff,.ogg';
+  const accept = o.type === 'vocal_chain' ? '' : o.type === 'video' ? 'video/*,.mp4,.mov,.webm'
+    : 'audio/*,.mp3,.wav,.m4a,.aac,.flac,.aif,.aiff,.ogg';
   const file = await pickFile(accept);
   if (!file) return;
   const fileId = uid();
   await db.putFile(fileId, file);
-  const isAudio = file.type.startsWith('audio/') || /\.(mp3|wav|m4a|aac|flac|aiff?|ogg)$/i.test(file.name);
-  const duration = isAudio ? await audioDuration(file) : null;
+  const media = isAudioFile({ mime: file.type, name: file.name }) || isVideoFile({ mime: file.type, name: file.name });
+  const duration = media ? await audioDuration(file) : null;
   const version = o.submissions.reduce((m, s) => Math.max(m, s.version), 0) + 1;
   o.submissions.push({
     id: uid(), fileId, name: file.name, size: file.size, mime: file.type,
@@ -826,9 +956,13 @@ const actions = {
     o.status = 'delivered';
     o.deliveredAt = Date.now();
     o.deliveredSubmissionId = latest.id;
-    if (o.type !== 'own') Object.assign(o, clientReply(o));
+    if (!selfMade(o)) Object.assign(o, clientReply(o));
+    // Everything with music gets the next-day self-review (not presets, not videos).
+    if (o.type !== 'vocal_chain' && o.type !== 'video' && isAudioFile(latest)) {
+      o.review = { opensAt: reviewOpensAt(o.deliveredAt), listenedSec: 0, duration: latest.duration || null, rating: null };
+    }
     await saveOrder(o);
-    toast(o.type === 'own' ? 'Fertig ✅' : 'Abgegeben ✅');
+    toast(o.review ? `Abgegeben ✅ Morgen nochmal anhören & bewerten` : selfMade(o) ? 'Fertig ✅' : 'Abgegeben ✅');
     render(); renderSheet();
   },
 
@@ -861,6 +995,48 @@ const actions = {
   },
 
   play: (el) => play(el.dataset.order, el.dataset.sub),
+
+  async 'play-video'(el) {
+    const o = state.orders.find((x) => x.id === el.dataset.order);
+    const s = o?.submissions.find((x) => x.id === el.dataset.sub);
+    if (!s) return;
+    let blob;
+    try { blob = await getBlob(o, s); } catch (e) { return toast(`Download fehlgeschlagen: ${e.message}`); }
+    if (!blob) return toast('Datei ist auf diesem Gerät nicht vorhanden.');
+    audio.pause();
+    closeVideo();
+    state.video = { subId: s.id, url: URL.createObjectURL(blob) };
+    if (state.sheet?.id !== o.id) openSheet({ kind: 'order', id: o.id }); else renderSheet();
+    $('#sheet video')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  },
+
+  async rate(el) {
+    const o = state.orders.find((x) => x.id === el.dataset.id);
+    const n = Number(el.dataset.v);
+    if (!confirm(`${n}/10 – sicher? Die Bewertung ist endgültig.`)) return;
+    o.review.rating = n;
+    o.review.ratedAt = Date.now();
+    if (n >= state.settings.videoThreshold) {
+      const v = createVideoOrder(o);
+      o.review.videoOrderId = v.id;
+      await saveOrder(v);
+      toast('🎬 Freigegeben! Neuer Video-Auftrag ist da.');
+    } else {
+      toast(`${n}/10 – nächstes Mal knackst du die ${state.settings.videoThreshold} 💪`);
+    }
+    if (state.playing?.orderId === o.id) audio.pause();
+    await saveOrder(o);
+    render(); renderSheet();
+  },
+
+  async 'reroll-video'(el) {
+    const o = state.orders.find((x) => x.id === el.dataset.id);
+    const src = state.orders.find((x) => x.id === o.sourceOrderId) || o;
+    const fresh = createVideoOrder(src, { concept: rerollConcept(o) });
+    Object.assign(o, { brief: fresh.brief, concept: fresh.concept, mood: fresh.mood });
+    await saveOrder(o);
+    renderSheet();
+  },
   'share-file': (el) => shareFile(el.dataset.order, el.dataset.sub),
   stop() {
     audio.pause();
@@ -890,6 +1066,7 @@ const actions = {
     if (s.eveningEnd <= s.eveningStart) s.eveningEnd = s.eveningStart + 1;
     await saveSettings();
     if (key === 'type') await refreshPending(true);
+    else if (key === 'videoThreshold') { /* nur Anzeige */ }
     else if (key !== 'maxActive') await refreshPending(false);
     else scheduleNative();
     render();

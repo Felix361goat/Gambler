@@ -43,6 +43,8 @@ Handy per USB anschließen (Entwickleroptionen + **USB-Debugging** an) und in An
 | **Arten** | Instrumental, Full Song, Vocal Chain, Hook/Feature, Remix/Flip, dazu **eigene Projekte** ohne Auftrag. Häufigkeit pro Art einstellbar. |
 | **Upload** | Mehrere Versionen pro Auftrag (v1, v2 …), z. B. MP3/WAV aus FL Studio. Für Vocal Chains gehen auch Presets/beliebige Dateien. |
 | **Abgabe** | Eine Version abgeben. Der Kunde antwortet mit Feedback und Sternen, pünktlich oder zu spät zählt. |
+| **Nochmal anhören** | Am **Tag nach der Abgabe** wird die Bewertung freigeschaltet (mit Erinnerung am Abend). Du musst den Track erst (fast) ganz anhören (vorspulen zählt nicht), dann bewertest du ihn ehrlich von **1 bis 10**. |
+| **Videos / TikToks** | Ab **9/10** (in den Einstellungen änderbar) wird der Song freigegeben und du bekommst automatisch einen **🎬 Video-Auftrag**: TikTok/Reel, YouTube Short, Visualizer, Lyric- oder Musikvideo, mit Konzept, Format, Länge und Deadline. Konzept neu würfeln geht auch. Videos lädst du hoch und schaust sie in der App an. Unter 9 bleibt der Track Übung. |
 | **Bibliothek** | Alle Uploads nach Monat gruppiert, filterbar nach Art und Genre, mit Suche und Stats (abgegeben, Pünktlichkeit, Uploads). |
 | **Player** | Mini-Player im Apple-Music-Stil, Steuerung auf dem Sperrbildschirm (Media Session), Teilen über das iOS-Share-Sheet. |
 | **Handy** | Liquid-Glass-Design, Dark Mode, eigenes App-Icon, Vollbild, Mitteilungen bei neuen Aufträgen (Android-App: auch bei geschlossener App) plus Erinnerung am Abgabetag, Android-Zurück-Taste, offline nutzbar. |
@@ -89,6 +91,7 @@ Danach synchronisiert die App automatisch nach jeder Änderung und beim Öffnen.
 Auf einem zweiten Gerät einfach dieselben Daten eintragen und anmelden.
 
 **Tipp:** Aus FL Studio als **MP3 (320 kbps)** exportieren. WAVs werden schnell größer als 50 MB.
+Dateien über 50 MB (z. B. lange Videos) bleiben nur auf dem Handy und werden nicht in die Cloud geladen.
 
 ## Aufbau
 
