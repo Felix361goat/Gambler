@@ -1,5 +1,5 @@
 // Service worker: offline app shell + notification clicks.
-const CACHE = 'beat-orders-v17';
+const CACHE = 'beat-orders-v18';
 const SHELL = [
   './',
   './index.html',
