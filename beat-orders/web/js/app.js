@@ -1577,6 +1577,8 @@ function renderOrderSheet(o) {
       <div class="review glass"><div class="review-score">⏳</div><div><b>In der Vocal-Warteschlange</b>
         <span>Kommt automatisch, sobald du ${state.settings.vocalGap ?? 2} weitere Beats abgegeben hast (spätestens nach ${QUEUE_MAX_DAYS} Tagen). Lust auf jetzt?</span></div></div>
       <button class="btn" data-action="release-vocal" data-id="${o.id}">🎙️ Jetzt direkt aufnehmen</button>
+      <button class="btn secondary" data-action="reroll-concept" data-id="${o.id}" style="margin-top:10px">🎲 Anderes Konzept</button>
+      ${o.prompt ? `<button class="btn secondary" data-action="reroll-theme" data-id="${o.id}" style="margin-top:10px">✍️ Anderes Thema</button>` : ''}
     ` : o.status === 'expired' ? `
       <div class="review glass"><div class="review-score">⌛</div><div><b>Abgelaufen</b>
         <span>Mehr als ${GRACE_DAYS} Tage nach der Deadline – abgeben geht nicht mehr. Bleibt in deiner Historie.</span></div></div>
