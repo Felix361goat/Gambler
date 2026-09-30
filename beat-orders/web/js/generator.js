@@ -264,7 +264,7 @@ export function createVideoOrder(song, { concept, history = [], settings } = {})
 }
 
 export const rerollConcept = (order) => {
-  const list = order.type === 'vocals' ? VOCAL_CONCEPTS : VIDEO_CONCEPTS;
+  const list = order.type === 'vocals' ? (isRiddimGenre(order.genre) ? [...VOCAL_CONCEPTS, ...RIDDIM_CONCEPTS] : VOCAL_CONCEPTS) : VIDEO_CONCEPTS;
   return pick(list.filter((c) => c.idea !== order.concept?.idea));
 };
 
@@ -278,6 +278,14 @@ const VOCAL_CONCEPTS = [
   { format: 'Feature-Style', length: 'Hook + Part + Platz für Feature', idea: 'Schreib Hook und einen Part auf „{song}“ und lass Platz für ein Feature (16 Bars). Thema: {theme}.' },
 ];
 
+// Dancehall's riddim method: one riddim, many voicings ("juggling").
+const RIDDIM_GENRES = ['Dancehall', 'Afro-Dancehall', 'Dancehall-Trap'];
+const RIDDIM_CONCEPTS = [
+  { format: 'Riddim-Juggling', length: '2 Songs à Hook + 1 Part', idea: 'Riddim-Prinzip wie in Jamaika: Schreib ZWEI komplett verschiedene Songs auf deinen Riddim „{song}“ – einer hart/Straße, einer Party oder Liebe (wie auf dem Diwali-Riddim: Bounty Killer hart, Sean Paul Party, Wayne Wonder romantisch). Thema für Song 1: {theme}.' },
+  { format: 'Dancehall-Voicing', length: '16 Bars Verse + 8 Bars Refrain', idea: 'Voice auf „{song}“ im Dancehall-Style: Verse auf nur 1–2 Tönen (rhythmisch, on beat), der Refrain wird melodisch und von einem Synth gedoppelt. Thema: {theme}.' },
+];
+export const isRiddimGenre = (g) => RIDDIM_GENRES.includes(g);
+
 export function vocalBrief(c, title, pr, refs = []) {
   return `${fill(c.idea, { song: title, theme: pr.theme })}\n\n✍️ Thema (${pr.category}): ${pr.theme}\n👁️ Perspektive: ${pr.perspective}\n` +
     `🔑 Pflicht-Wort: „${pr.word}“\n🎬 Einstieg (optional): ${pr.opener}\n💭 Gefühl: ${pr.emotion}` +
@@ -287,7 +295,7 @@ export { songPrompt };
 
 export function createVocalOrder(beat, { concept, history = [], settings } = {}) {
   const now = Date.now();
-  const c = concept || pick(VOCAL_CONCEPTS);
+  const c = concept || (isRiddimGenre(beat.genre) && Math.random() < 0.6 ? pick(RIDDIM_CONCEPTS) : pick(VOCAL_CONCEPTS));
   const title = beat.title || `${ORDER_TYPES[beat.type]?.label || 'Beat'} für ${beat.client}`;
   const prompt = songPrompt(beat.genre);
   return {
@@ -453,6 +461,8 @@ export const EVENTS = [
   { title: 'Flohmarkt-Sample', brief: 'Such dir eine alte Platte oder ein altes Lied (Flohmarkt, Omas CDs, YouTube-Rarität) und sample es.', genre: 'UK Sample-Rap', effort: 4 },
   { title: 'Kinderlied-Flip', brief: 'Nimm ein bekanntes Kinderlied und flippe es in einen harten Beat. Lustig UND gut – das geht viral.', genre: 'Jersey Club', effort: 3 },
   { title: 'Ein-Instrument-Song', brief: 'Ein kompletter Song mit nur EINEM Instrument (plus Stimme). Weniger ist mehr.', genre: 'Alternative R&B', effort: 4 },
+  { title: 'Dubplate-Special', brief: 'Wie bei den Sound-Clashes in Jamaika: Nimm einen deiner Songs und mach eine Dubplate – gleiche Melodie, gleicher Beat, aber neue Zeilen, die einen deiner Stammkunden (oder deine Crew) feiern. Kurz, 1 Minute reicht.', genre: 'Dancehall', effort: 2 },
+  { title: 'Riddim-Tausch', brief: 'Nimm die Acapella von einem deiner Songs und leg sie auf einen komplett anderen Beat (anderes Genre, gleiches Tempo oder halb/doppelt). In Jamaika völlig normal – bei dir?', genre: 'Afro-Dancehall', effort: 3 },
   { title: 'Live-Session', brief: 'Nimm einen Song in einem einzigen Take auf – Beat läuft, du performst, Kamera an. Keine Schnitte.', genre: 'UK Afroswing', effort: 4 },
 ];
 

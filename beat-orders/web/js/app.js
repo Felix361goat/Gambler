@@ -1048,6 +1048,7 @@ function genreGuide(name) {
     ${g.tip ? `<div class="g-tip">💡 ${esc(g.tip)}</div>` : ''}
     <div class="g-inst">${(g.inst || []).map((i) => `<span class="pill">${esc(i)}</span>`).join('')}</div>
     ${g.refs?.length ? `<div class="g-refs">🎧 ${esc(g.refs.join(' · '))}</div>` : ''}
+    ${g.listen?.length ? `<div class="g-refs">📼 Klassiker zum Reinhören: ${esc(g.listen.join(' · '))}</div>` : ''}
   </div>`;
 }
 
