@@ -342,6 +342,7 @@ export const DEFAULT_SETTINGS = {
   types: { instrumental: 3, full_song: 1, vocal_chain: 1, hook: 1, remix: 1 }, // Gewichtung, 0 = aus
   notifications: false,
   vocalThreshold: 8, // eigene Bewertung, ab der ein Beat für Vocals freigegeben wird
+  vocalGap: 2, // so viele andere Beats liegen dazwischen, bevor der Vocal-Auftrag kommt (0 = sofort)
   videoThreshold: 9, // eigene Bewertung, ab der ein Song fürs Video freigegeben wird
 };
 

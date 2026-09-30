@@ -313,6 +313,7 @@ function fmtSize(bytes) {
 const graceEnd = (o) => o.deadline + GRACE_DAYS * DAY;
 function dueInfo(o) {
   if (o.status === 'expired') return { text: 'Abgelaufen', cls: 'red' };
+  if (o.status === 'queued') return { text: 'Wartet', cls: '' };
   if (!o.deadline) return { text: 'Ohne Deadline', cls: '' };
   if (o.status === 'delivered') {
     const late = lateDays(o);
@@ -432,6 +433,31 @@ async function newPending(from = Date.now()) {
   return p;
 }
 
+// ---- 🎙️ vocal queue: a top beat gets its vocal order after a few other beats.
+const QUEUE_MAX_DAYS = 14; // at the latest after two weeks
+const beatsSince = (ts) => state.orders.filter((x) => !x.deleted && x.status === 'delivered' && x.deliveredAt > ts && ['instrumental', 'remix', 'own'].includes(x.type)).length;
+async function releaseOrder(v, { silent } = {}) {
+  const now = Date.now();
+  v.status = 'new';
+  v.createdAt = now;
+  v.deadline = deadlineFor(ORDER_TYPES[v.type].effort, now, state.settings.week);
+  const L = locInfo();
+  if (needsMic(v) && !L.mic && L.until > now) v.deadline += L.until - now; // recording only possible in Schwechat
+  await saveOrder(v);
+  if (!silent) {
+    toast(`🎙️ Vocal-Zeit: ${orderTitle(v)}`);
+    if (!isNative) notify(v);
+  }
+}
+async function releaseQueued() {
+  const gap = state.settings.vocalGap ?? 2;
+  const L = locInfo();
+  if (L.valid && !L.mic) return; // wait until you're back at the mic
+  for (const v of state.orders.filter((x) => x.status === 'queued' && !x.deleted)) {
+    if (beatsSince(v.queuedAt) >= gap || Date.now() - v.queuedAt > QUEUE_MAX_DAYS * DAY) await releaseOrder(v);
+  }
+}
+
 // Overdue for more than GRACE_DAYS → expired (stays in the history, frees the slot).
 async function expireOverdue() {
   const now = Date.now();
@@ -445,6 +471,7 @@ async function expireOverdue() {
 
 async function checkArrivals() {
   await expireOverdue();
+  await releaseQueued();
   const now = Date.now();
   let pending = (await db.get('pendingOrder')) || (await newPending(now));
   if (now >= pending.createdAt && activeCount() < state.settings.maxActive && locInfo().valid) {
@@ -726,6 +753,7 @@ function renderOrders() {
 
     ${active.length && nextHint ? `<p class="footnote">${nextHint}</p>` : ''}
 
+    ${queueSection()}
     ${questCard()}
     ${tipCard()}
 
@@ -741,6 +769,18 @@ function backupDue() {
   if (delivered.length < 3) return false;
   const since = state.lastBackupAt || delivered.reduce((m, o) => Math.min(m, o.deliveredAt), Date.now());
   return Date.now() - since > 30 * DAY;
+}
+
+function queueSection() {
+  const q = state.orders.filter((o) => o.status === 'queued' && !o.deleted);
+  if (!q.length) return '';
+  const gap = state.settings.vocalGap ?? 2;
+  return `<div class="section-title">🎙️ Vocal-Warteschlange <small>${q.length}</small></div>
+    <div class="group glass">${q.map((v) => {
+      const left = Math.max(0, gap - beatsSince(v.queuedAt));
+      return `<div class="row"><span class="label"><button class="btn plain small" style="padding:0;min-height:0;text-align:left" data-action="open-order" data-id="${v.id}">${esc(orderTitle(v))}</button><br><small class="muted">kommt nach ${left} ${left === 1 ? 'weiterem Beat' : 'weiteren Beats'}${!locInfo().mic ? ' · in Schwechat' : ''}</small></span>
+        <button class="btn small" data-action="release-vocal" data-id="${v.id}">Jetzt</button></div>`;
+    }).join('')}</div>`;
 }
 
 function progressCard() {
@@ -1286,6 +1326,7 @@ function renderSettings() {
       <div class="row"><span class="label">Aufträge pro Woche</span><span class="value">${s.ordersPerWeek}</span>${stepper('ordersPerWeek', 1, 14)}</div>
       <div class="row"><span class="label">Max. gleichzeitig</span><span class="value">${s.maxActive}</span>${stepper('maxActive', 1, 6)}</div>
       <div class="row"><span class="label">🎙️ Vocals ab</span><span class="value">${s.vocalThreshold}/10</span>${stepper('vocalThreshold', 5, 10)}</div>
+      <div class="row"><span class="label">🎙️ Vocals nach</span><span class="value">${(s.vocalGap ?? 2) ? `${s.vocalGap ?? 2} Beats` : 'sofort'}</span>${stepper('vocalGap', 0, 5)}</div>
       <div class="row"><span class="label">🎬 Video ab</span><span class="value">${s.videoThreshold}/10</span>${stepper('videoThreshold', 5, 10)}</div>
     </div>
     <p class="footnote">Am Tag nach der Abgabe hörst du deinen Track nochmal an und bewertest ihn. 🎹 Beat ab ${s.vocalThreshold}/10 → 🎙️ Vocals drauf → 🎤 Song ab ${s.videoThreshold}/10 → 🎬 Video/TikTok.</p>
@@ -1532,7 +1573,11 @@ function renderOrderSheet(o) {
     </div>
     ${GENRES[o.genre] ? `<details class="guide glass"><summary>📚 Genre-Guide: ${esc(o.genre)}</summary>${genreGuide(o.genre)}</details>` : ''}
 
-    ${o.status === 'expired' ? `
+    ${o.status === 'queued' ? `
+      <div class="review glass"><div class="review-score">⏳</div><div><b>In der Vocal-Warteschlange</b>
+        <span>Kommt automatisch, sobald du ${state.settings.vocalGap ?? 2} weitere Beats abgegeben hast (spätestens nach ${QUEUE_MAX_DAYS} Tagen). Lust auf jetzt?</span></div></div>
+      <button class="btn" data-action="release-vocal" data-id="${o.id}">🎙️ Jetzt direkt aufnehmen</button>
+    ` : o.status === 'expired' ? `
       <div class="review glass"><div class="review-score">⌛</div><div><b>Abgelaufen</b>
         <span>Mehr als ${GRACE_DAYS} Tage nach der Deadline – abgeben geht nicht mehr. Bleibt in deiner Historie.</span></div></div>
       ${subs.length ? `<div class="section-title" style="margin-top:14px">Versionen <small>${subs.length}</small></div>${subs.map((x) => subRow(o, x)).join('')}` : ''}
@@ -2035,6 +2080,7 @@ const actions = {
     await saveOrder(o);
     const late = lateDays(o);
     if (late) setTimeout(() => toast(late > 7 ? `⌛ ${late} Tage zu spät – diesmal keine Coins, aber XP & Bewertung zählen` : `⌛ ${late} ${late === 1 ? 'Tag' : 'Tage'} zu spät – halbe Coins`), 2800);
+    await releaseQueued();
     rewardToast(before, o.minRating ? `Abgegeben – Urteil nach deiner Bewertung (mind. ${o.minRating}/10)` : o.review ? 'Abgegeben ✅ Morgen nochmal anhören' : selfMade(o) ? 'Fertig ✅' : 'Abgegeben ✅');
     render(); renderSheet();
   },
@@ -2111,16 +2157,18 @@ const actions = {
     }
     if (n >= thrFor(o)) {
       const v = unlockFor(o) === 'vocals' ? createVocalOrder(o, genOpts()) : createVideoOrder(o, genOpts());
-      const L = locInfo();
-      if (needsMic(v) && !L.mic && L.until > Date.now()) v.deadline += L.until - Date.now(); // recording only possible in Schwechat
       o.review.nextOrderId = v.id;
-      await saveOrder(v);
+      if (v.type === 'vocals' && (state.settings.vocalGap ?? 2) > 0) {
+        // Not right away: first a couple of other beats (or start it yourself).
+        Object.assign(v, { status: 'queued', queuedAt: Date.now(), deadline: null });
+        await saveOrder(v);
+      } else await releaseOrder(v, { silent: true });
     }
     if (state.playing?.orderId === o.id) audio.pause();
     await saveOrder(o);
     rewardToast(before, o.accepted ? `✅ ${TIER[o.tier].label} hat akzeptiert!`
       : n >= thrFor(o)
-      ? (unlockFor(o) === 'vocals' ? '🎙️ Freigegeben – jetzt Vocals drauf!' : '🎬 Freigegeben – Video-Auftrag ist da')
+      ? (unlockFor(o) === 'vocals' ? ((state.settings.vocalGap ?? 2) > 0 ? `🎙️ Freigegeben für Vocals – kommt nach ${state.settings.vocalGap ?? 2} weiteren Beats (oder jetzt direkt starten)` : '🎙️ Freigegeben – jetzt Vocals drauf!') : '🎬 Freigegeben – Video-Auftrag ist da')
       : `${n}/10 – nächstes Mal knackst du die ${thrFor(o)} 💪`);
     render(); renderSheet();
   },
@@ -2166,6 +2214,13 @@ const actions = {
   },
   'career-update': (el) => careerUpdate(el.dataset.id),
   'check-inbox': () => checkInbox(true),
+  async 'release-vocal'(el) {
+    const v = state.orders.find((x) => x.id === el.dataset.id);
+    if (!v || v.status !== 'queued') return;
+    await releaseOrder(v, { silent: true });
+    toast('🎙️ Los geht\'s – Vocal-Auftrag ist aktiv');
+    render(); if (state.sheet) renderSheet();
+  },
   'loc-days': (el) => { state.locDays = Number(el.dataset.v); render(); },
   async 'set-location'(el) {
     const days = state.locDays || 3;
@@ -2255,6 +2310,7 @@ const actions = {
     await saveSettings();
     if (key === 'type' || key === 'genre') await refreshPending(true);
     else if (key === 'videoThreshold' || key === 'vocalThreshold') { /* nur Anzeige */ }
+    else if (key === 'vocalGap') await releaseQueued();
     else if (key !== 'maxActive') await refreshPending(false);
     else scheduleNative();
     render();
