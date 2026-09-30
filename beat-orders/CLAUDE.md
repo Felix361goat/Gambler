@@ -28,6 +28,10 @@ git add inbox/tasks.json && git commit -m "Inbox: <title>" && git push -u origin
 - `--effort` = hours of work (deadline follows their weekly free time),
   `--days` = fixed deadline instead. `--genre` should be a key of `GENRES`
   in `web/js/genres.js` (then the order shows the genre guide + references).
+- **Before sending tasks for the next days, always ask where the user is:**
+  Schwechat (has a mic → vocals/songs/hooks OK) or Perchtoldsdorf (no mic →
+  only beats, mixing, sound design, writing lyrics; no recording). Plan the
+  tasks accordingly. The app asks the same question itself (📍 card).
 - Make the brief actionable: what to make, 1–2 concrete constraints, a reference.
 - Only the inbox file changes → pushing it still triggers an APK build; that's fine.
 - The app checks on start, when it comes back to the foreground and every ~5 min

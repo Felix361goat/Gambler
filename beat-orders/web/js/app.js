@@ -234,6 +234,40 @@ setInterval(() => state.activeSession && renderSessionBar(), 1000);
 
 const genOpts = () => ({ history: state.orders.filter((o) => !o.deleted), settings: state.settings });
 
+// ---- 📍 where are you? Schwechat has a mic, Perchtoldsdorf only FL + speakers.
+const PLACES = {
+  schwechat: { label: 'Schwechat', icon: '🎙️', mic: true, note: 'mit Mic – Vocals gehen' },
+  perchtoldsdorf: { label: 'Perchtoldsdorf', icon: '🎧', mic: false, note: 'kein Mic – nur Beats, Mixing & Lyrics schreiben' },
+};
+const MIC_TYPES = ['full_song', 'hook', 'vocals', 'release'];
+const needsMic = (o) => MIC_TYPES.includes(o.type);
+function locInfo() {
+  const l = state.settings.location;
+  const valid = Boolean(l?.place && PLACES[l.place] && Date.now() <= l.until);
+  return { ...(l || {}), valid, mic: valid ? PLACES[l.place].mic : true, P: valid ? PLACES[l.place] : null };
+}
+// Settings for new orders: no recording jobs while you're without a mic.
+function orderSettings() {
+  const { valid, mic } = locInfo();
+  if (!valid || mic) return state.settings;
+  const types = { ...state.settings.types };
+  for (const k of MIC_TYPES) if (k in types) types[k] = 0;
+  if (!Object.values(types).some((w) => w > 0)) types.instrumental = 3;
+  return { ...state.settings, types };
+}
+function locationCard() {
+  const L = locInfo();
+  if (L.valid) return '';
+  const days = state.locDays || 3;
+  const waiting = state.nextOrderAt && state.nextOrderAt <= Date.now();
+  return `<div class="loc-card glass">
+    <b>📍 Wo bist du die nächsten Tage?</b>
+    <span class="muted">${waiting ? 'Ein neuer Auftrag wartet – damit' : 'Damit'} ich dir nur Aufträge gebe, die du dort auch machen kannst.</span>
+    <div class="loc-btns">${Object.entries(PLACES).map(([k, P]) => `<button class="btn ${P.mic ? '' : 'secondary'}" data-action="set-location" data-v="${k}">${P.icon} ${P.label}<small>${P.mic ? 'mit Mic' : 'kein Mic'}</small></button>`).join('')}</div>
+    <div class="chips" style="margin:8px 0 0">${[[1, 'Heute'], [3, '3 Tage'], [7, '1 Woche']].map(([d, l]) => `<button class="chip glass ${days === d ? 'on' : ''}" data-action="loc-days" data-v="${d}">${l}</button>`).join('')}</div>
+  </div>`;
+}
+
 // Toast the XP/coins/trophies a change brought ("before" = progress() before it).
 function rewardToast(before, msg) {
   const after = progress();
@@ -374,7 +408,7 @@ const activeCount = () => state.orders.filter((o) => isActive(o) && !selfMade(o)
 
 async function newPending(from = Date.now()) {
   const stage = careerStage();
-  const types = { ...state.settings.types };
+  const types = { ...orderSettings().types };
   for (const [k, f] of Object.entries(stage.boost)) if (types[k]) types[k] *= f;
   const opts = { at: nextArrival(state.settings, from), ...genOpts(), settings: { ...state.settings, types } };
   const live = state.orders.filter((o) => !o.deleted);
@@ -388,7 +422,7 @@ async function newPending(from = Date.now()) {
     p = createExpertOrder(state.settings, opts);
   } else if (!live.some((o) => o.rush && isActive(o)) && Math.random() < 0.08) {
     // ⚡ Eil-Auftrag: small job, short deadline, double reward.
-    p = generateOrder(opts.settings, { ...opts, type: pick(['hook', 'vocal_chain']) });
+    p = generateOrder(opts.settings, { ...opts, type: locInfo().mic ? pick(['hook', 'vocal_chain']) : 'vocal_chain' });
     const d = new Date(p.createdAt); d.setDate(d.getDate() + 2); d.setHours(23, 59, 0, 0);
     Object.assign(p, { rush: true, deadline: d.getTime(), budget: Math.round(p.budget * 1.5), brief: `⚡ EILT!!! Bis übermorgen bitte.\n${p.brief}` });
   } else {
@@ -413,7 +447,7 @@ async function checkArrivals() {
   await expireOverdue();
   const now = Date.now();
   let pending = (await db.get('pendingOrder')) || (await newPending(now));
-  if (now >= pending.createdAt && activeCount() < state.settings.maxActive) {
+  if (now >= pending.createdAt && activeCount() < state.settings.maxActive && locInfo().valid) {
     // Waited long (e.g. because you were at your limit)? Then the clock starts now.
     const delay = now - pending.createdAt;
     if (delay > 12 * 3600e3) {
@@ -497,10 +531,12 @@ async function scheduleNative(pending) {
   pending = pending || (await db.get('pendingOrder'));
   const list = [];
   if (pending && activeCount() < state.settings.maxActive) {
+    const L = state.settings.location;
+    const known = L?.place && pending.createdAt <= L.until;
     list.push({
       id: 1,
-      title: `📥 ${pending.client} · ${ORDER_TYPES[pending.type].label}`,
-      body: pending.brief,
+      title: known ? `📥 ${pending.client} · ${ORDER_TYPES[pending.type].label}` : '📍 Neuer Auftrag wartet',
+      body: known ? pending.brief : 'Bist du in Schwechat (Mic) oder Perchtoldsdorf? Tipp drauf und sag es mir – dann kommt der passende Auftrag.',
       at: pending.createdAt,
       extra: { orderId: pending.id },
     });
@@ -637,6 +673,7 @@ function orderCard(o) {
     <div class="order-foot">
       <span class="pill ${due.cls}">${due.text}</span>
       ${o.rush && o.status !== 'delivered' ? '<span class="pill orange">⚡ Eilt · 2× Coins</span>' : ''}
+      ${needsMic(o) && isActive(o) && !locInfo().mic ? '<span class="pill">🎙️ Aufnahme erst in Schwechat</span>' : ''}
       ${o.challenge ? `<span class="pill ${o.challenge.done ? 'green' : 'blue'}">${MODE[o.challenge.mode]?.icon || '🎯'} ${esc(o.challenge.area)}${o.challenge.done ? ' ✓' : ''}</span>` : ''}
       ${o.effort && o.status !== 'delivered' ? `<span class="pill">⏱ ~${fmtHours(o.effort)}</span>` : ''}
       ${o.submissions.length ? `<span class="pill">${o.type === 'video' ? '🎬' : o.type === 'vocals' ? '🎙️' : '🎧'} ${o.submissions.length} Version${o.submissions.length > 1 ? 'en' : ''}</span>` : ''}
@@ -657,7 +694,7 @@ function renderOrders() {
 
   const nextHint = !state.nextOrderAt ? ''
     : state.nextOrderAt <= Date.now()
-      ? 'Ein Kunde wartet schon – sobald du unter deinem Limit bist, kommt der Auftrag rein 👀'
+      ? (locInfo().valid ? 'Ein Kunde wartet schon – sobald du unter deinem Limit bist, kommt der Auftrag rein 👀' : 'Ein Kunde wartet – sag oben kurz, wo du bist 📍')
       : `Nächster Auftrag voraussichtlich ${fmtDate(state.nextOrderAt, { weekday: 'long' })} 👀`;
 
   return `
@@ -666,7 +703,8 @@ function renderOrders() {
       <h1 class="large-title">Aufträge</h1>
       <button class="icon-btn glass" data-action="request-order" aria-label="Auftrag anfordern" style="margin-bottom:6px">${ICON.plus}</button>
     </div>
-    <p class="subtitle">Hi${name} 👋 Diese Woche: ${doneWeek}/${state.settings.ordersPerWeek} erledigt</p>
+    <p class="subtitle">Hi${name} 👋 Diese Woche: ${doneWeek}/${state.settings.ordersPerWeek} erledigt${locInfo().valid ? ` · <button class="btn plain small" style="padding:0;min-height:0;display:inline" data-action="change-location">${locInfo().P.icon} ${locInfo().P.label}</button>` : ''}</p>
+    ${locationCard()}
     ${progressCard()}
     ${recapCard()}
     ${careerDue() && state.orders.some((o) => o.status === 'delivered') ? '<button class="hint glass" data-action="tab" data-tab="career" style="width:100%;text-align:left"><div style="font-size:24px">📈</div><div><b>Karriere-Update fällig</b>Trag deine Spotify-, TikTok- und Insta-Zahlen ein.</div></button>' : ''}
@@ -1252,6 +1290,12 @@ function renderSettings() {
     </div>
     <p class="footnote">Am Tag nach der Abgabe hörst du deinen Track nochmal an und bewertest ihn. 🎹 Beat ab ${s.vocalThreshold}/10 → 🎙️ Vocals drauf → 🎤 Song ab ${s.videoThreshold}/10 → 🎬 Video/TikTok.</p>
 
+    <div class="group-title">📍 Wo bist du?</div>
+    <div class="group glass">
+      <button class="row tap" data-action="change-location"><span class="label">${locInfo().valid ? `${locInfo().P.icon} ${locInfo().P.label} bis ${fmtDate(locInfo().until)}` : 'Noch nicht gesagt'}</span><span class="value" style="color:var(--accent)">ändern</span></button>
+    </div>
+    <p class="footnote">Schwechat = mit Mic (Vocals, Songs, Hooks). Perchtoldsdorf = nur FL & Speaker (Beats, Mixing, Lyrics schreiben). Bevor neue Aufträge kommen, fragt dich die App.</p>
+
     <div class="group-title">Wochenplan – wann hast du Zeit?</div>
     <div class="group glass">
       ${[1, 2, 3, 4, 5, 6, 0].map((d) => {
@@ -1478,6 +1522,7 @@ function renderOrderSheet(o) {
         ${o.status !== 'delivered' ? `<button class="btn plain small" style="padding:0;min-height:30px" data-action="reroll-challenge" data-id="${o.id}">🎲 Andere Challenge</button>` : ''}
         ${o.challenge.done === true ? '<span style="color:var(--green)">✓ Umgesetzt</span>' : o.challenge.done === false ? '<span>Nicht umgesetzt – kommt wieder dran</span>' : ''}</div>
     </div>` : ''}
+    ${needsMic(o) && isActive(o) && !locInfo().mic ? '<div class="tip glass"><span>🎧</span><div><b>Du bist gerade in Perchtoldsdorf</b>Kein Mic – schreib schon mal die Lyrics und bereite den Beat vor. Aufnehmen dann in Schwechat.</div></div>' : ''}
     ${renderReview(o)}
     ${o.sourceOrderId ? `<button class="btn plain" data-action="open-order" data-id="${o.sourceOrderId}">🎧 ${o.type === 'vocals' ? 'Zum Beat' : 'Zum Song'}</button>` : ''}
     ${state.video && o.submissions.some((x) => x.id === state.video.subId) ? '<div id="videoSlot"></div>' : ''}
@@ -1916,7 +1961,7 @@ const actions = {
     const active = state.orders.filter((o) => isActive(o) && o.type !== 'own').length;
     if (active >= state.settings.maxActive &&
         !confirm(`Du hast schon ${active} aktive Aufträge (Limit ${state.settings.maxActive}). Trotzdem einen neuen?`)) return;
-    const o = generateOrder(state.settings, genOpts());
+    const o = generateOrder(orderSettings(), genOpts());
     await receiveOrder(o);
     openSheet({ kind: 'order', id: o.id });
   },
@@ -1934,7 +1979,7 @@ const actions = {
     const o = state.orders.find((x) => x.id === el.dataset.id);
     o.status = 'declined';
     await saveOrder(o);
-    const n = generateOrder(state.settings, genOpts());
+    const n = generateOrder(orderSettings(), genOpts());
     await saveOrder(n);
     toast('🔄 Neuer Auftrag');
     render();
@@ -2066,6 +2111,8 @@ const actions = {
     }
     if (n >= thrFor(o)) {
       const v = unlockFor(o) === 'vocals' ? createVocalOrder(o, genOpts()) : createVideoOrder(o, genOpts());
+      const L = locInfo();
+      if (needsMic(v) && !L.mic && L.until > Date.now()) v.deadline += L.until - Date.now(); // recording only possible in Schwechat
       o.review.nextOrderId = v.id;
       await saveOrder(v);
     }
@@ -2113,12 +2160,32 @@ const actions = {
   'lex-fam': (el) => { state.lexFam = el.dataset.v; render(); },
   'open-genre': (el) => openSheet({ kind: 'genre', id: el.dataset.v }),
   async 'request-genre'(el) {
-    const o = generateOrder(state.settings, { ...genOpts(), genre: el.dataset.v });
+    const o = generateOrder(orderSettings(), { ...genOpts(), genre: el.dataset.v });
     await receiveOrder(o);
     openSheet({ kind: 'order', id: o.id });
   },
   'career-update': (el) => careerUpdate(el.dataset.id),
   'check-inbox': () => checkInbox(true),
+  'loc-days': (el) => { state.locDays = Number(el.dataset.v); render(); },
+  async 'set-location'(el) {
+    const days = state.locDays || 3;
+    const d = new Date(); d.setDate(d.getDate() + days - 1); d.setHours(23, 59, 0, 0);
+    state.settings.location = { place: el.dataset.v, until: d.getTime(), setAt: Date.now() };
+    await saveSettings();
+    const P = PLACES[el.dataset.v];
+    toast(`${P.icon} ${P.label} bis ${fmtDate(d.getTime())} – ${P.note}`);
+    const pend = await db.get('pendingOrder');
+    if (pend && needsMic(pend) && !P.mic) await refreshPending(true); // waiting order needs a mic → re-plan it
+    await checkArrivals();
+    render();
+  },
+  async 'change-location'() {
+    state.settings.location = null;
+    await saveSettings();
+    state.tab = 'orders';
+    render();
+    window.scrollTo(0, 0);
+  },
   'open-customer': (el) => openSheet({ kind: 'customer', id: el.dataset.id }),
   async 'lyrics-template'(el) {
     const o = state.orders.find((x) => x.id === el.dataset.id);
@@ -2346,8 +2413,8 @@ const actions = {
 async function refreshPending(keepTime) {
   const old = await db.get('pendingOrder');
   const p = keepTime && old
-    ? generateOrder(state.settings, { at: old.createdAt, ...genOpts() })
-    : generateOrder(state.settings, { at: nextArrival(state.settings), ...genOpts() });
+    ? generateOrder(orderSettings(), { at: old.createdAt, ...genOpts() })
+    : generateOrder(orderSettings(), { at: nextArrival(state.settings), ...genOpts() });
   await db.set('pendingOrder', p);
   state.nextOrderAt = p.createdAt;
   scheduleNative(p);
@@ -2507,7 +2574,7 @@ async function boot() {
   let askPermission = false;
   if (!(await db.get('welcomed'))) {
     await db.set('welcomed', true);
-    await saveOrder(generateOrder(state.settings, { type: 'instrumental', ...genOpts() }), { silent: true });
+    await saveOrder(generateOrder(orderSettings(), { type: 'instrumental', ...genOpts() }), { silent: true });
     askPermission = isNative;
   }
 

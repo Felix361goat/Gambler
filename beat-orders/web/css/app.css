@@ -599,3 +599,8 @@ button.mini-avatar, button.k-item { padding: 0; border: 0; cursor: pointer; }
 .g-steps { margin: 10px 0 4px; font-size: 14px; line-height: 1.4; }
 .g-steps ol { margin: 6px 0 0; padding-left: 20px; }
 .g-steps li { margin: 4px 0; color: var(--label); }
+
+.loc-card { padding: 16px; border-radius: 20px; margin: 10px 0 14px; display: flex; flex-direction: column; gap: 6px; border: 1px solid rgba(45,212,191,.6); }
+.loc-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.loc-btns .btn { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 12px 8px; }
+.loc-btns .btn small { font-size: 12px; font-weight: 500; opacity: .8; }
