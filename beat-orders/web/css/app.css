@@ -595,3 +595,7 @@ button.mini-avatar, button.k-item { padding: 0; border: 0; cursor: pointer; }
   .view { padding-top: calc(var(--safe-top) + 24px); }
   .sheet { border-radius: 28px; bottom: 24px; max-height: calc(100% - 48px); }
 }
+
+.g-steps { margin: 10px 0 4px; font-size: 14px; line-height: 1.4; }
+.g-steps ol { margin: 6px 0 0; padding-left: 20px; }
+.g-steps li { margin: 4px 0; color: var(--label); }

@@ -1039,13 +1039,14 @@ function genreGuide(name) {
   if (!g) return '';
   const row = (k, v) => (v ? `<div class="g-row"><span>${k}</span><b>${esc(v)}</b></div>` : '');
   return `<div class="g-body">
-    ${row('Tempo', `${g.bpm[0]}–${g.bpm[1]} BPM`)}
+    ${row('Tempo', `${g.bpm[0]}–${g.bpm[1]} BPM${g.bpmNote ? ` (${g.bpmNote})` : ''}`)}
     ${row('Tonarten', (g.keys || []).join(', '))}
     ${row('🥁 Snare/Clap', g.snare)}
     ${row('Hi-Hats', g.hats)}
     ${row('808/Bass', g.bass)}
     ${row('Aufbau & Übergänge', g.arr)}
     ${g.tip ? `<div class="g-tip">💡 ${esc(g.tip)}</div>` : ''}
+    ${g.steps?.length ? `<div class="g-steps"><b>🧱 So baust du ihn – Schritt für Schritt</b><ol>${g.steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></div>` : ''}
     <div class="g-inst">${(g.inst || []).map((i) => `<span class="pill">${esc(i)}</span>`).join('')}</div>
     ${g.refs?.length ? `<div class="g-refs">🎧 ${esc(g.refs.join(' · '))}</div>` : ''}
     ${g.listen?.length ? `<div class="g-refs">📼 Klassiker zum Reinhören: ${esc(g.listen.join(' · '))}</div>` : ''}
