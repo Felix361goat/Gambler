@@ -576,6 +576,12 @@ function updateBadge() {
 // ------------------------------------------------------------ rendering --
 
 function render() {
+  try { renderView(); } catch (e) {
+    console.error('render', e);
+    window.__bootError?.(e);
+  }
+}
+function renderView() {
   const tabFor = state.tab === 'settings' ? 'profile' : state.tab;
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === tabFor));
   if (state.tab === 'orders') view.innerHTML = renderOrders();
@@ -2448,7 +2454,10 @@ async function loadState() {
   state.recapSeen = await db.get('recapSeen');
 }
 
+const stage = (x) => { window.__bootStage = x; };
+
 async function boot() {
+  stage('daten laden');
   requestPersistence();
   state.settings = { ...DEFAULT_SETTINGS, ...((await db.get('settings')) || {}) };
   state.settings.types = { ...DEFAULT_SETTINGS.types, ...state.settings.types };
@@ -2492,19 +2501,31 @@ async function boot() {
   state.cloudConfigured = await cloud.configured();
 
   // First launch: welcome order so the app isn't empty.
+  stage('erster start');
+  let askPermission = false;
   if (!(await db.get('welcomed'))) {
     await db.set('welcomed', true);
     await saveOrder(generateOrder(state.settings, { type: 'instrumental', ...genOpts() }), { silent: true });
-    // Android app: ask once for notification permission right away.
-    if (isNative && (await requestNotificationPermission())) {
-      state.settings.notifications = true;
-      await saveSettings();
-    }
+    askPermission = isNative;
   }
 
-  await checkArrivals();
+  // Show the app first – nothing below may keep the screen empty.
+  stage('anzeigen');
+  render();
+  stage('aufträge prüfen');
+  try { await checkArrivals(); } catch (e) { console.error('arrivals', e); }
   updateBadge();
   render();
+  stage('fertig');
+  // Android app: ask once for notification permission (after the UI is up).
+  if (askPermission) {
+    requestNotificationPermission().then(async (ok) => {
+      if (!ok) return;
+      state.settings.notifications = true;
+      await saveSettings();
+      scheduleNative();
+    }).catch((e) => console.error('permission', e));
+  }
   renderSessionBar();
   checkInbox();
   claimQuests();
@@ -2515,7 +2536,7 @@ async function boot() {
     history.replaceState(null, '', location.pathname);
   }
 
-  if (isNative) { setupNative(); App.getInfo().then((i) => { state.appVersion = i.version; }).catch(() => {}); }
+  if (isNative) { try { setupNative(); } catch (e) { console.error('native', e); } App.getInfo().then((i) => { state.appVersion = i.version; }).catch(() => {}); }
   else if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch((e) => console.warn('sw', e));
     navigator.serviceWorker.addEventListener('message', (e) => {
@@ -2545,4 +2566,4 @@ async function boot() {
   }
 }
 
-boot();
+boot().catch((e) => { console.error('boot', e); window.__bootError?.(e); try { render(); } catch {} });

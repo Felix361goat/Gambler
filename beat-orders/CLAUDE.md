@@ -39,3 +39,8 @@ git add inbox/tasks.json && git commit -m "Inbox: <title>" && git push -u origin
 - Serve `web/` (`python3 -m http.server 8765`) and drive it with Playwright (Pixel 7 emulation).
 - Bump `CACHE` in `web/sw.js` when shell files change.
 - Data lives in IndexedDB on the phone: never change ids/keys without a migration in `boot()`.
+- Android: `@capacitor/core` is **not** bundled (no build step), so
+  `window.Capacitor.registerPlugin` does not exist on the device – plugins are
+  reached via `Capacitor.nativePromise`/`addListener` (see `web/js/native.js`).
+  Native Playwright mocks must mirror that (no `registerPlugin`), otherwise
+  they hide device-only crashes.

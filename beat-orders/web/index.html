@@ -59,6 +59,24 @@
   <input id="filePicker" type="file" hidden />
   <audio id="audio" preload="metadata" playsinline></audio>
 
-  <script type="module" src="js/app.js"></script>
+  <script>
+    // Safety net: if the app can't start, show why instead of an empty screen.
+    (function () {
+      var errs = [];
+      function show(extra) {
+        var v = document.getElementById('view');
+        if (!v || (v.children.length && !extra)) return;
+        v.innerHTML = '<div class="empty glass" style="text-align:left"><div class="big">🛠️</div><h3>Beim Starten ist etwas schiefgelaufen</h3>' +
+          '<p>Mach bitte einen Screenshot davon und schick ihn Claude.</p><pre style="white-space:pre-wrap;font-size:12px;opacity:.8">' +
+          ('Schritt: ' + (window.__bootStage || 'laden') + '\n' + errs.join('\n')).replace(/[<&]/g, function (c) { return c === '<' ? '&lt;' : '&amp;'; }) +
+          '</pre><button class="btn small" onclick="location.reload()">Neu laden</button></div>';
+      }
+      window.__bootError = function (e) { errs.push(String((e && (e.stack || e.message)) || e).slice(0, 600)); show(true); };
+      window.addEventListener('error', function (e) { errs.push((e.message || 'Fehler') + ' @ ' + (e.filename || '').split('/').pop() + ':' + (e.lineno || '')); });
+      window.addEventListener('unhandledrejection', function (e) { var r = e.reason; errs.push('Promise: ' + String((r && (r.stack || r.message)) || r).slice(0, 400)); });
+      setTimeout(function () { show(false); }, 6000);
+    })();
+  </script>
+  <script type="module" src="js/app.js" onerror="window.__bootError && window.__bootError('app.js konnte nicht geladen werden')"></script>
 </body>
 </html>

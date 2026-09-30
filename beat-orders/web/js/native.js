@@ -4,7 +4,20 @@
 const C = window.Capacitor;
 export const isNative = Boolean(C?.isNativePlatform?.());
 
-const plugin = (name) => (isNative ? C.registerPlugin(name) : null);
+// The app has no build step, so @capacitor/core (which provides
+// Capacitor.registerPlugin) isn't bundled – the Android bridge only offers
+// nativePromise/addListener. Build a small plugin proxy on top of those.
+function plugin(name) {
+  if (!isNative) return null;
+  if (typeof C.registerPlugin === 'function') return C.registerPlugin(name);
+  return new Proxy({}, {
+    get: (_, method) => {
+      if (method === 'then') return undefined; // not a promise
+      if (method === 'addListener') return async (event, cb) => C.addListener(name, event, cb);
+      return (options) => C.nativePromise(name, String(method), options || {});
+    },
+  });
+}
 export const LocalNotifications = plugin('LocalNotifications');
 export const App = plugin('App');
 export const Filesystem = plugin('Filesystem');
