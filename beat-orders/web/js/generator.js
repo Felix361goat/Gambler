@@ -342,6 +342,7 @@ export const DEFAULT_SETTINGS = {
   types: { instrumental: 3, full_song: 1, vocal_chain: 1, hook: 1, remix: 1 }, // Gewichtung, 0 = aus
   notifications: false,
   vocalThreshold: 8, // eigene Bewertung, ab der ein Beat für Vocals freigegeben wird
+  tempo: 1, // ⏱ 0 = entspannt, 1 = normal, 2 = sportlich
   vocalGap: 2, // so viele andere Beats liegen dazwischen, bevor der Vocal-Auftrag kommt (0 = sofort)
   videoThreshold: 9, // eigene Bewertung, ab der ein Song fürs Video freigegeben wird
 };
@@ -562,9 +563,15 @@ export function freeMinutesPerWeek(week) {
 
 // Deadline = end of the day on which your free time since `from` covers
 // 2.5× the effort (you won't spend every free minute on it). 2–14 days.
-const EFFORT_FACTOR = 2.5;
+// Calibrated on real pace (Oct 2026): a beat with ~10 free hours was only
+// half done (melodies yes, risers/arrangement not yet) → 4× effort.
+const EFFORT_FACTOR = 4;
+// ⏱ Tempo setting (0 = entspannt, 1 = normal, 2 = sportlich).
+export const TEMPO = [{ label: 'Entspannt', f: 1.3 }, { label: 'Normal', f: 1 }, { label: 'Sportlich', f: 0.75 }];
+let PACE = 1;
+export const setTempo = (t) => { PACE = TEMPO[t ?? 1]?.f ?? 1; };
 export function deadlineFor(effortH, from = Date.now(), week) {
-  const need = (effortH || 3) * 60 * EFFORT_FACTOR;
+  const need = (effortH || 3) * 60 * EFFORT_FACTOR * PACE;
   const day = new Date(from);
   day.setHours(12, 0, 0, 0);
   let acc = 0;
@@ -593,8 +600,24 @@ export function snapToWindow(ts, s) {
   return ts;
 }
 
+// Fixed weekly rhythm: arrival days spread evenly, starting Saturday
+// (2/week → Sa + Di: something new for the weekend, one for the week).
+export const arrivalDays = (perWeek) => [...new Set(Array.from({ length: perWeek }, (_, i) => Math.floor(6 + (i * 7) / perWeek) % 7))];
 export function nextArrival(s, from = Date.now()) {
   const perWeek = Math.max(1, Math.min(14, s.ordersPerWeek || 2));
+  if (perWeek <= 7) {
+    const days = new Set(arrivalDays(perWeek));
+    const earliest = from + 12 * 3600e3; // never two arrivals in the same evening
+    const d = new Date(earliest);
+    for (let i = 0; i < 15; i++) {
+      if (days.has(d.getDay()) && windowOn(d.getTime(), s.week)) {
+        const t = snapToWindow(Math.max(d.getTime(), earliest), s);
+        if (new Date(t).toDateString() === d.toDateString()) return t;
+      }
+      d.setDate(d.getDate() + 1);
+      d.setHours(0, 0, 0, 0);
+    }
+  }
   const avgMs = (7 * 24 * 3600 * 1000) / perWeek;
   return snapToWindow(from + avgMs * rand(0.6, 1.3), s);
 }

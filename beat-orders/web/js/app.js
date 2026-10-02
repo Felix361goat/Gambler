@@ -4,7 +4,7 @@ import {
   clientReply, nextArrival, uid, createVideoOrder, createVocalOrder, rerollConcept, reviewOpensAt,
   SKILLS, levelInfo, DEFAULT_GENRE_WEIGHTS, GENRE_LABELS, TASTE_VERSION, analyze, pickChallenge, windowOn, freeMinutesPerWeek,
   createExpertOrder, createBossOrder, verdictReply, isFan, EXPERT_MIN, vocalBrief, songPrompt,
-  createEventOrder, GENRE_RENAMES, deadlineFor, refsFor,
+  createEventOrder, GENRE_RENAMES, deadlineFor, refsFor, setTempo, TEMPO, arrivalDays,
 } from './generator.js';
 import { fetchInbox } from './inbox.js';
 import { titleFor, tipOfDay, questsForWeek } from './motivation.js';
@@ -1324,6 +1324,7 @@ function renderSettings() {
     <div class="group-title">Rhythmus</div>
     <div class="group glass">
       <div class="row"><span class="label">Aufträge pro Woche</span><span class="value">${s.ordersPerWeek}</span>${stepper('ordersPerWeek', 1, 14)}</div>
+      <div class="row"><span class="label">⏱ Tempo<br><small style="color:var(--label-2)">wie viel Zeit Aufträge bekommen</small></span><span class="value">${TEMPO[s.tempo ?? 1].label}</span>${stepper('tempo', 0, 2)}</div>
       <div class="row"><span class="label">Max. gleichzeitig</span><span class="value">${s.maxActive}</span>${stepper('maxActive', 1, 6)}</div>
       <div class="row"><span class="label">🎙️ Vocals ab</span><span class="value">${s.vocalThreshold}/10</span>${stepper('vocalThreshold', 5, 10)}</div>
       <div class="row"><span class="label">🎙️ Vocals nach</span><span class="value">${(s.vocalGap ?? 2) ? `${s.vocalGap ?? 2} Beats` : 'sofort'}</span>${stepper('vocalGap', 0, 5)}</div>
@@ -1355,7 +1356,7 @@ function renderSettings() {
       const pct = free ? Math.round((planned / free) * 100) : 0;
       return `<p class="footnote">Freizeit: <b>${Math.round(free)} Std/Woche</b> · eingeplant ~${Math.round(planned)} Std (${pct} %).
         ${pct > 45 ? '⚠️ Das ist viel – lieber weniger Aufträge pro Woche, dafür gescheit.' : pct < 15 ? 'Da ist noch Luft nach oben.' : '👍 Machbar, ohne dass es stresst.'}
-        Aufträge kommen, wenn deine freie Zeit anfängt, und die Deadline richtet sich nach deinen freien Stunden. Feld leer lassen = an dem Tag keine Zeit.</p>`;
+        Neue Aufträge kommen ${s.ordersPerWeek <= 7 ? `jeden <b style="display:inline">${arrivalDays(s.ordersPerWeek).map((d) => ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][d]).join(', ')}</b>` : 'über die Woche verteilt'}, wenn deine freie Zeit anfängt, und die Deadline richtet sich nach deinen freien Stunden. Feld leer lassen = an dem Tag keine Zeit.</p>`;
     })()}
 
     <div class="group-title">Auftragsarten</div>
@@ -2313,6 +2314,7 @@ const actions = {
     if (key === 'type' || key === 'genre') await refreshPending(true);
     else if (key === 'videoThreshold' || key === 'vocalThreshold') { /* nur Anzeige */ }
     else if (key === 'vocalGap') await releaseQueued();
+    else if (key === 'tempo') { setTempo(s.tempo); await refreshPending(true); }
     else if (key !== 'maxActive') await refreshPending(false);
     else scheduleNative();
     render();
@@ -2612,6 +2614,14 @@ async function boot() {
   if (Array.isArray(oldGenres)) {
     for (const g of oldGenres) state.settings.genreWeights[g] = Math.max(2, state.settings.genreWeights[g] ?? 0);
     delete state.settings.genres;
+    await saveSettings();
+  }
+  setTempo(state.settings.tempo);
+  // v5: fixed weekly arrival rhythm – re-plan a not-yet-due pending order once.
+  if (!state.settings.rhythmV2) {
+    const p0 = await db.get('pendingOrder');
+    if (p0 && p0.createdAt > Date.now()) await db.set('pendingOrder', null);
+    state.settings.rhythmV2 = true;
     await saveSettings();
   }
   state.orders = await db.allOrders();
