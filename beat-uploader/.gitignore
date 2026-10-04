@@ -1,0 +1,11 @@
+config.json
+client_secret*.json
+token.json
+inbox/*
+!inbox/.gitkeep
+output/
+done/
+backgrounds/*
+!backgrounds/.gitkeep
+__pycache__/
+*.pyc

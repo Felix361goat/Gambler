@@ -1,0 +1,29 @@
+{
+  "producer_name": "prod. DEINNAME",
+  "default_artists": ["Drake", "Future"],
+  "default_genre": "Trap",
+  "title_prefix": "[FREE]",
+  "year_in_title": true,
+
+  "links": {
+    "buy": "https://www.beatstars.com/DEINNAME",
+    "instagram": "https://instagram.com/DEINNAME",
+    "email": "deinname.beats@gmail.com"
+  },
+
+  "license_text": "Dieser Beat ist FREE nur für Non-Profit-Nutzung. Du MUSST \"prod. DEINNAME\" im Titel nennen.\nFür kommerzielle Nutzung (Spotify, Apple Music usw.) bitte eine Lizenz kaufen.",
+  "extra_tags": ["type beat", "free beat", "instrumental", "beats"],
+
+  "youtube": {
+    "privacy": "public",
+    "category_id": "10",
+    "made_for_kids": false,
+    "publish_hours_apart": 24
+  },
+
+  "video": {
+    "width": 1920,
+    "height": 1080,
+    "waveform": true
+  }
+}
