@@ -3,12 +3,12 @@ import subprocess
 
 
 def render(image_path, audio_path, out_path, width=1920, height=1080, waveform=True):
-    wave_h = height // 7
+    wave_h = int(height * 0.07)
     if waveform:
         filt = (
             f"[0:v]scale={width}:{height},format=yuv420p[bg];"
             f"[1:a]showwaves=s={width}x{wave_h}:mode=cline:rate=30:scale=sqrt:draw=full:colors=white@0.8,format=rgba[w];"
-            f"[bg][w]overlay=0:{int(height * 0.70)}:shortest=1,format=yuv420p[v]"
+            f"[bg][w]overlay=0:{height - wave_h - int(height * 0.02)}:shortest=1,format=yuv420p[v]"
         )
     else:
         filt = f"[0:v]scale={width}:{height},format=yuv420p[v]"

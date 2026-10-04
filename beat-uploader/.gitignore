@@ -7,5 +7,7 @@ output/
 done/
 backgrounds/*
 !backgrounds/.gitkeep
+artists/*
+!artists/.gitkeep
 __pycache__/
 *.pyc

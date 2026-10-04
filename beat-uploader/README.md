@@ -3,8 +3,8 @@
 Du legst eine MP3 rein, das Tool macht den Rest:
 
 1. **Analysiert den Beat**: erkennt BPM und Tonart (Key) automatisch
-2. **Erstellt Cover-Art**: YouTube-Thumbnail (1280×720), Video-Bild (1920×1080) und ein quadratisches Cover (3000×3000) für BeatStars/Instagram
-3. **Rendert das Video**: Cover + Beat + animierte Waveform als MP4
+2. **Erstellt Thumbnails im Stil der großen Type-Beat-Kanäle** (KBEATS, Drayy, Detroit-Kanäle): YouTube-Thumbnail (1280×720), Video-Bild (1920×1080) und ein quadratisches Cover (3000×3000) für BeatStars/Instagram
+3. **Rendert das Video**: Thumbnail-Bild + Beat als MP4 (Waveform optional)
 4. **Schreibt Titel, Beschreibung und Tags** im bewährten Type-Beat-Format, z. B.
    `[FREE] Drake x Future Type Beat - "Midnight Rain" | Dark Trap Beat 2026`
 5. **Lädt alles auf YouTube hoch**, mit Thumbnail und auf Wunsch geplant (z. B. 1 Beat pro Tag um 18 Uhr)
@@ -84,7 +84,7 @@ Das Tool liest Titel, Artists, BPM und Key aus dem Dateinamen (was fehlt, wird e
 
 ```bash
 python beat_uploader.py beat.mp3 --artist "Travis Scott, Don Toliver"
-python beat_uploader.py --genre Drill --mood drill
+python beat_uploader.py --genre Detroit                 # Detroit-Look: Ästhetik-Foto, kein Text
 python beat_uploader.py --schedule "2026-10-06 18:00"   # 1. Beat morgen 18 Uhr, danach alle 24 h
 python beat_uploader.py --privacy unlisted
 python beat_uploader.py --paid                           # ohne [FREE] im Titel
@@ -98,13 +98,37 @@ python beat_uploader.py --no-upload                      # nur Dateien erstellen
 | `--bpm`, `--key` | falls die automatische Erkennung danebenliegt |
 | `--genre` | z. B. Trap, Drill, R&B |
 | `--mood` | Farbstil: `dark`, `sad`, `hype`, `chill`, `love`, `drill`, `dreamy` (sonst automatisch: Moll + schnell = dark, Moll + langsam = sad …) |
+| `--style` | Thumbnail-Stil: `title`, `tiled`, `pillarbox`, `clean`, `bold` (siehe unten) |
 | `--schedule` | geplante Veröffentlichung |
 | `--paid` | kein „FREE“ |
 | `--no-upload` | nicht hochladen |
 
-### Eigene Hintergrundbilder
+## 5. Thumbnails: so sehen sie aus
 
-Leg Bilder (JPG/PNG) in den Ordner **`backgrounds/`**. Dann wird statt des generierten Farbverlaufs zufällig eins davon als Hintergrund genutzt (abgedunkelt, mit Text drauf). Gute Quellen für lizenzfreie Bilder: Unsplash, Pexels.
+Die Stile sind von den Kanälen abgeschaut, die bei „uk afroswing type beat“ und „detroit type beat“ ganz oben ranken:
+
+| Stil | Aussehen | wird automatisch genommen, wenn … |
+|---|---|---|
+| `title` | Artist-Foto füllt das Bild, **ein großes, breites, weißes Wort** (Beat-Name) in der Mitte, kleines Producer-Tag darunter (KBEATS/Drayy-Look) | Artist-Foto im Querformat |
+| `tiled` | wie `title`, aber ein Hochkant-Foto **2–3× nebeneinander** (wie „BADINA“/„AZONTO“) | Artist-Foto im Hochformat |
+| `pillarbox` | Hochkant-Handyfoto mittig auf Schwarz, **kein Text** (Detroit-Look: Uhr, Kette, Becher, Flasche …) | Ästhetik-Foto im Hochformat |
+| `clean` | Ästhetik-Foto im Querformat, kein Text | Ästhetik-Foto im Querformat |
+| `bold` | kein Foto: Farbverlauf + großer Text | gar kein Foto vorhanden |
+
+Erzwingen mit z. B. `--style tiled`. In der config: `"text": "never"` (nie Text) oder `"always"` (immer Titel drauf).
+
+### Woher kommen die Fotos?
+
+Das Tool sucht in dieser Reihenfolge:
+
+1. **`artists/<Artist-Name>/`**: deine eigenen Fotos vom Artist, z. B. `artists/J Hus/1.jpg`, `artists/Jay Silva/2.jpg`. **Das gibt die besten Ergebnisse.** Am besten nimmst du mehrere Bilder pro Artist, dann wird jedes Mal ein anderes benutzt.
+2. **Automatisch: lizenzfreie Artist-Fotos von Wikimedia Commons**, z. B. Konzertfotos. Sie werden einmal heruntergeladen und in `artists/` gespeichert. Die nötige Foto-Angabe (Fotograf + Lizenz) wird automatisch in die Beschreibung geschrieben.
+3. **`backgrounds/<genre oder mood>/`**: deine eigenen Ästhetik-Bilder, z. B. `backgrounds/detroit/`, `backgrounds/afroswing/`, `backgrounds/dark/` oder direkt `backgrounds/`.
+4. **Automatisch: lizenzfreie Ästhetik-Fotos von Openverse**, passend zum Genre (Detroit → Uhren, Ketten, Neonlicht, Autos …) oder zur Stimmung. Eigene Suchbegriffe kannst du in der config unter `aesthetic_queries` eintragen, z. B. `{"detroit": ["iced out watch", "rolls royce night"]}`.
+
+> ⚠️ **Rechtlicher Hinweis:** Viele Type-Beat-Kanäle nehmen Screenshots aus Musikvideos oder Fotos von Instagram. Das ist in der Szene üblich, rechtlich aber eine Grauzone. Die Fotos gehören dem Fotografen bzw. Label, und es gibt auch das Recht am eigenen Bild. Meistens passiert nichts, im schlimmsten Fall kann ein Video entfernt werden. Die automatisch geladenen Fotos (Wikimedia/Openverse) sind frei lizenziert und deshalb die sichere Variante. Was du selbst in `artists/` legst, verantwortest du.
+
+**Schrift:** Für den großen Titel ist **Archivo Black** dabei (freie Lizenz, `fonts/OFL.txt`). Eine eigene Schrift kannst du in der config unter `"fonts": {"title": "C:/Pfad/zu/Schrift.ttf"}` eintragen, z. B. eine „Wide“/„Extended“-Schrift.
 
 ---
 

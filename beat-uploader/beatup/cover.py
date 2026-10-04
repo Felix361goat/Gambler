@@ -1,42 +1,134 @@
-"""Cover art / thumbnail generator.
+"""Thumbnails / cover art in the style of the big type beat channels.
 
-Uses a random picture from backgrounds/ if there is one, otherwise paints an
-abstract glow background in colors that match the beat's mood.
+Modelled on what ranks in searches like "uk afroswing type beat" and
+"detroit type beat":
+
+  title      (KBEATS / Drayy style) artist photo fills the frame, natural
+             colors, ONE big wide white word (the beat name) in the middle,
+             small producer tag below
+  tiled      same, but a portrait photo repeated 2-3x side by side
+  pillarbox  (Detroit style) a portrait phone photo centered on black,
+             no text at all
+  clean      landscape aesthetic photo, full frame, no text
+  bold       fallback without any photo: abstract background + big text
 """
 import hashlib
 import random
 from pathlib import Path
 
+import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
+BASE = Path(__file__).resolve().parent.parent
+
 PALETTES = {
-    "dark":  [(10, 10, 18), (90, 0, 30), (200, 20, 60), (255, 60, 90)],
-    "sad":   [(8, 12, 30), (20, 40, 90), (70, 120, 200), (160, 200, 255)],
-    "hype":  [(15, 5, 0), (140, 30, 0), (255, 110, 0), (255, 210, 60)],
-    "chill": [(10, 20, 25), (20, 80, 90), (60, 190, 170), (180, 255, 230)],
-    "love":  [(25, 5, 20), (110, 20, 80), (240, 80, 160), (255, 190, 220)],
-    "drill": [(5, 5, 5), (40, 40, 50), (120, 120, 140), (230, 230, 240)],
+    "dark":   [(10, 10, 18), (90, 0, 30), (200, 20, 60), (255, 60, 90)],
+    "sad":    [(8, 12, 30), (20, 40, 90), (70, 120, 200), (160, 200, 255)],
+    "hype":   [(15, 5, 0), (140, 30, 0), (255, 110, 0), (255, 210, 60)],
+    "chill":  [(10, 20, 25), (20, 80, 90), (60, 190, 170), (180, 255, 230)],
+    "love":   [(25, 5, 20), (110, 20, 80), (240, 80, 160), (255, 190, 220)],
+    "drill":  [(5, 5, 5), (40, 40, 50), (120, 120, 140), (230, 230, 240)],
     "dreamy": [(15, 5, 35), (70, 20, 120), (170, 90, 255), (255, 170, 250)],
 }
 
-FONT_CANDIDATES = [
-    "C:/Windows/Fonts/impact.ttf",
-    "C:/Windows/Fonts/arialbd.ttf",
-    "/System/Library/Fonts/Supplemental/Impact.ttf",
-    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-    "/Library/Fonts/Arial Bold.ttf",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
-]
+# saturation, contrast, shadow tint, highlight tint  (applied lightly)
+GRADES = {
+    "dark":   (0.85, 1.10, (25, -5, 0), (5, -5, -5)),
+    "sad":    (0.75, 1.00, (-10, 0, 25), (-5, 5, 15)),
+    "hype":   (1.15, 1.12, (5, 0, -10), (20, 8, -10)),
+    "chill":  (1.00, 1.00, (-5, 10, 10), (15, 10, 0)),
+    "love":   (1.00, 1.02, (20, -5, 15), (15, 5, 5)),
+    "drill":  (0.60, 1.15, (0, 0, 8), (0, 0, 0)),
+    "dreamy": (0.95, 1.00, (20, -5, 35), (15, 5, 20)),
+}
 
-IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
+LAYOUTS = ["title", "tiled", "pillarbox", "clean", "bold"]
+TEXT_LAYOUTS = {"title", "tiled", "bold"}
+
+TITLE_FONTS = [
+    str(BASE / "fonts" / "ArchivoBlack-Regular.ttf"),
+    "C:/Windows/Fonts/ariblk.ttf",
+    "/System/Library/Fonts/Supplemental/Arial Black.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+]
 
 
 def _font(size, custom=None):
-    for path in ([custom] if custom else []) + FONT_CANDIDATES:
+    for path in ([custom] if custom else []) + TITLE_FONTS:
         if path and Path(path).exists():
-            return ImageFont.truetype(path, size)
-    return ImageFont.load_default(size)
+            return ImageFont.truetype(path, max(8, int(size)))
+    return ImageFont.load_default(max(8, int(size)))
+
+
+def _orientation(path):
+    with Image.open(path) as im:
+        im = ImageOps.exif_transpose(im)
+        return "portrait" if im.height > im.width * 1.05 else "landscape"
+
+
+def choose_layout(meta, photo, style="auto", text="auto"):
+    """photo: {"path", "kind"} from images.pick() or None."""
+    if not photo or not photo.get("path"):
+        return "bold"
+    portrait = _orientation(photo["path"]) == "portrait"
+    if style in LAYOUTS and style != "bold":
+        if style == "tiled" and not portrait:
+            return "title"
+        if style == "pillarbox" and not portrait:
+            return "clean"
+        return style
+    if style == "bold":
+        return "bold"
+
+    if text == "never":
+        return "pillarbox" if portrait else "clean"
+    if photo["kind"] == "artist" or text == "always":
+        return "tiled" if portrait else "title"
+    # Aesthetic photo: the Detroit look, picture speaks for itself
+    return "pillarbox" if portrait else "clean"
+
+
+# ---------- image processing ----------
+
+def _load(path):
+    return ImageOps.exif_transpose(Image.open(path)).convert("RGB")
+
+
+def _fit(img, w, h, kind):
+    # Faces usually sit in the upper part of artist photos
+    centering = (0.5, 0.35) if kind == "artist" else (0.5, 0.5)
+    return ImageOps.fit(img, (w, h), Image.LANCZOS, centering=centering)
+
+
+def grade(img, mood, strength=0.5):
+    sat, contrast, shadow, highlight = GRADES.get(mood, GRADES["dark"])
+    a = np.asarray(img.convert("RGB"), dtype=np.float32) / 255.0
+    lum = (a @ np.array([0.299, 0.587, 0.114], dtype=np.float32))[..., None]
+    a = lum + (a - lum) * (1 + (sat - 1) * strength)
+    a = 0.5 + (a - 0.5) * (1 + (contrast - 1) * strength)
+    a = a + (1 - lum) * np.array(shadow, dtype=np.float32) / 255.0 * strength
+    a = a + lum * np.array(highlight, dtype=np.float32) / 255.0 * strength
+    return Image.fromarray((np.clip(a, 0, 1) * 255).astype(np.uint8))
+
+
+def grain(img, amount=0.03, seed=0):
+    w, h = img.size
+    rng = np.random.default_rng(seed)
+    scale = max(1, round(min(w, h) / 720))
+    noise = rng.normal(0, 255 * amount, (h // scale + 1, w // scale + 1)).astype(np.float32)
+    if scale > 1:
+        noise = np.kron(noise, np.ones((scale, scale), dtype=np.float32))
+    a = np.asarray(img, dtype=np.float32) + noise[:h, :w, None]
+    return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
+
+
+def vignette(img, strength=0.35):
+    w, h = img.size
+    y, x = np.ogrid[:h, :w]
+    d = np.sqrt(((x - w / 2) / (w / 2)) ** 2 + ((y - h / 2) / (h / 2)) ** 2) / np.sqrt(2)
+    mask = 1 - strength * np.clip(d * 1.25 - 0.25, 0, 1) ** 1.6
+    a = np.asarray(img, dtype=np.float32) * mask[..., None]
+    return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
 
 
 def _abstract_background(w, h, palette, rng):
@@ -48,99 +140,106 @@ def _abstract_background(w, h, palette, rng):
         x, y = rng.randint(0, w), rng.randint(0, h)
         d.ellipse((x - r, y - r, x + r, y + r), fill=rng.choice(palette[1:]))
     glow = glow.filter(ImageFilter.GaussianBlur(min(w, h) // 6))
-    img = Image.blend(base, glow, 0.85)
-
-    # Thin geometric lines for some texture
-    d = ImageDraw.Draw(img, "RGBA")
-    accent = palette[-1]
-    for _ in range(rng.randint(3, 6)):
-        y = rng.randint(0, h)
-        d.line((0, y, w, y + rng.randint(-h // 3, h // 3)), fill=accent + (40,), width=max(2, h // 300))
-    return img
+    return Image.blend(base, glow, 0.85)
 
 
-def _photo_background(w, h, path):
-    img = Image.open(path).convert("RGB")
-    img = ImageOps.fit(img, (w, h), Image.LANCZOS)
-    img = img.filter(ImageFilter.GaussianBlur(max(1, min(w, h) // 400)))
-    return Image.blend(img, Image.new("RGB", (w, h), (0, 0, 0)), 0.35)
+# ---------- text ----------
 
-
-def _grain_and_vignette(img, rng):
+def _big_title(img, text, font_path, center_y=0.56, max_w=0.80, max_h=0.24, stretch=1.25):
+    """One big wide white word with a soft drop shadow, like KBEATS / Drayy.
+    The text is drawn narrow and then stretched horizontally, which gives the
+    'extended' look of fonts like Druk Wide / Monument Extended."""
     w, h = img.size
-    noise = Image.effect_noise((w, h), 40).convert("RGB")
-    img = Image.blend(img, noise, 0.06)
-    mask = Image.new("L", (w, h), 0)
-    ImageDraw.Draw(mask).ellipse((-w * 0.2, -h * 0.2, w * 1.2, h * 1.2), fill=255)
-    mask = mask.filter(ImageFilter.GaussianBlur(min(w, h) // 5))
-    return Image.composite(img, Image.new("RGB", (w, h), (0, 0, 0)), mask)
-
-
-def _fit_text(draw, text, max_width, start_size, font_path):
-    size = start_size
-    while size > 12:
+    text = text.upper()
+    nw = int(w / stretch)
+    probe = ImageDraw.Draw(img)
+    size = h * max_h
+    font = _font(size, font_path)
+    while probe.textlength(text, font=font) * stretch > w * max_w and size > 10:
+        size *= 0.95
         font = _font(size, font_path)
-        if draw.textlength(text, font=font) <= max_width:
-            return font
-        size = int(size * 0.9)
-    return _font(size, font_path)
+
+    def mask(dx=0, dy=0, fill=255):
+        m = Image.new("L", (nw, h), 0)
+        ImageDraw.Draw(m).text((nw / 2 + dx / stretch, h * center_y + dy), text, font=font, fill=fill, anchor="mm")
+        return m.resize((w, h), Image.LANCZOS)
+
+    off = max(2, int(font.size * 0.04))
+    shadow = mask(off, off, 170).filter(ImageFilter.GaussianBlur(max(2, font.size * 0.08)))
+    img.paste(Image.new("RGB", (w, h), (0, 0, 0)), (0, 0), shadow)
+    img.paste(Image.new("RGB", (w, h), (255, 255, 255)), (0, 0), mask())
+    return font
 
 
-def _centered(draw, y, text, font, fill, shadow=True):
-    w = draw.im.size[0]
-    tw = draw.textlength(text, font=font)
-    x = (w - tw) / 2
-    if shadow:
-        off = max(2, font.size // 25)
-        draw.text((x + off, y + off), text, font=font, fill=(0, 0, 0, 180))
-    draw.text((x, y), text, font=font, fill=fill)
-    return y + font.size * 1.15
-
-
-def render(meta, size, out_path, backgrounds_dir=None, font_path=None):
-    w, h = size
-    seed = int(hashlib.md5(meta["title"].encode()).hexdigest(), 16)
-    rng = random.Random(seed)
-    palette = PALETTES.get(meta["mood"], PALETTES["dark"])
-
-    photos = []
-    if backgrounds_dir and Path(backgrounds_dir).is_dir():
-        photos = sorted(p for p in Path(backgrounds_dir).iterdir() if p.suffix.lower() in IMAGE_EXTS)
-    if photos:
-        img = _photo_background(w, h, rng.choice(photos))
-    else:
-        img = _abstract_background(w, h, palette, rng)
-    img = _grain_and_vignette(img, rng)
-
+def _producer_tag(img, tag, font_path, y=0.86):
+    """Small boxed tag under the title, like the 'KB / PROD BY KBEATS' logo."""
+    w, h = img.size
     d = ImageDraw.Draw(img, "RGBA")
-    accent = palette[-1] + (255,)
-    unit = min(w, h)
-    margin = w * 0.08
+    font = _font(h * 0.032, font_path)
+    text = tag.upper()
+    tw = d.textlength(text, font=font)
+    pad = font.size * 0.45
+    x0, y0 = w / 2 - tw / 2 - pad, h * y - font.size / 2 - pad
+    x1, y1 = w / 2 + tw / 2 + pad, h * y + font.size / 2 + pad
+    d.rectangle((x0, y0, x1, y1), outline=(255, 255, 255, 230), width=max(2, int(h * 0.004)))
+    d.text((w / 2, h * y), text, font=font, fill=(255, 255, 255, 240), anchor="mm")
 
-    title = meta["title"].upper()
-    title_font = _fit_text(d, title, w - 2 * margin, int(unit * 0.20), font_path)
-    sub = f"{' x '.join(meta['artists']).upper()} TYPE BEAT" if meta["artists"] else meta["genre"].upper() + " BEAT"
-    sub_font = _fit_text(d, sub, w - 2 * margin, int(unit * 0.07), font_path)
-    info = "  •  ".join(x for x in [f"{meta['bpm']} BPM" if meta.get("bpm") else "", meta.get("key") or ""] if x)
-    info_font = _font(int(unit * 0.045), font_path)
 
-    block_h = title_font.size * 1.15 + sub_font.size * 1.15 + (info_font.size * 1.6 if info else 0)
-    y = (h - block_h) / 2
-    y = _centered(d, y, title, title_font, (255, 255, 255, 255))
-    y = _centered(d, y, sub, sub_font, accent)
-    if info:
-        _centered(d, y + info_font.size * 0.4, info, info_font, (255, 255, 255, 220), shadow=False)
+# ---------- main entry ----------
 
-    tag_font = _font(int(unit * 0.04), font_path)
-    _centered(d, h - tag_font.size * 2.2, meta["producer"], tag_font, (255, 255, 255, 200), shadow=False)
+def render(meta, size, out_path, photo=None, layout="title", fonts=None, show_tag=True):
+    w, h = size
+    fonts = fonts or {}
+    title_font = fonts.get("title")
+    seed = int(hashlib.md5(meta["title"].encode()).hexdigest(), 16) % (2 ** 32)
+    rng = random.Random(seed)
+    kind = photo.get("kind") if photo and photo.get("path") else None
 
-    if meta.get("free"):
-        badge_font = _font(int(unit * 0.05), font_path)
-        pad = badge_font.size * 0.4
-        bw = d.textlength("FREE", font=badge_font) + 2 * pad
-        d.rounded_rectangle((margin * 0.5, margin * 0.5, margin * 0.5 + bw, margin * 0.5 + badge_font.size + 2 * pad),
-                            radius=pad, fill=accent)
-        d.text((margin * 0.5 + pad, margin * 0.5 + pad * 0.8), "FREE", font=badge_font, fill=(0, 0, 0, 255))
+    if layout == "bold" or not kind:
+        palette = PALETTES.get(meta["mood"], PALETTES["dark"])
+        img = _abstract_background(w, h, palette, rng)
+        img = vignette(grain(img, 0.04, seed), 0.6)
+        _big_title(img, meta["title"], title_font, center_y=0.47)
+        sub = (" x ".join(meta["artists"]) or meta["genre"]).upper() + " TYPE BEAT"
+        d = ImageDraw.Draw(img)
+        f = _font(h * 0.045, title_font)
+        d.text((w / 2, h * 0.62), sub, font=f, fill=palette[-1], anchor="mm")
+        if show_tag:
+            _producer_tag(img, meta["producer"], title_font)
+        img.save(out_path, quality=92)
+        return out_path
 
+    src = _load(photo["path"])
+
+    if layout in ("pillarbox", "clean"):
+        if layout == "pillarbox":
+            # Portrait phone photo centered on black, like the Detroit channels
+            ph = h
+            pw = min(w, int(src.width * ph / src.height))
+            inner = _fit(src, pw, ph, kind)
+            img = Image.new("RGB", (w, h), (0, 0, 0))
+            img.paste(grade(inner, meta["mood"], 0.4), ((w - pw) // 2, 0))
+        else:
+            img = grade(_fit(src, w, h, kind), meta["mood"], 0.4)
+        img = grain(img, 0.02, seed)
+        img.save(out_path, quality=92)
+        return out_path
+
+    if layout == "tiled":
+        # Repeat a portrait photo side by side until the frame is filled
+        n = max(2, min(3, round(w / (h * src.width / src.height))))
+        tile_w = -(-w // n)
+        tile = _fit(src, tile_w, h, kind)
+        img = Image.new("RGB", (w, h))
+        for i in range(n):
+            img.paste(tile, (i * tile_w, 0))
+    else:
+        img = _fit(src, w, h, kind)
+
+    img = grade(img, meta["mood"], 0.35)
+    img = vignette(grain(img, 0.02, seed), 0.3)
+    _big_title(img, meta["title"], title_font)
+    if show_tag:
+        _producer_tag(img, meta["producer"], title_font)
     img.save(out_path, quality=92)
     return out_path

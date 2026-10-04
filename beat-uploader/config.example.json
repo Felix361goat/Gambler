@@ -21,9 +21,19 @@
     "publish_hours_apart": 24
   },
 
+  "thumbnail": {
+    "style": "auto",
+    "text": "auto",
+    "producer_tag": true,
+    "use_artist_photos": true,
+    "auto_download": true,
+    "fonts": {},
+    "aesthetic_queries": {}
+  },
+
   "video": {
     "width": 1920,
     "height": 1080,
-    "waveform": true
+    "waveform": false
   }
 }

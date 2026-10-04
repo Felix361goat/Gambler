@@ -15,7 +15,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from beatup import analyze, cover, metadata, video
+from beatup import analyze, cover, images, metadata, video
 
 BASE = Path(__file__).resolve().parent
 AUDIO_EXTS = {".mp3", ".wav", ".flac", ".m4a"}
@@ -68,15 +68,23 @@ def process(audio_path, args, cfg, publish_at, service_getter):
 
     out_dir = BASE / "output" / f"{datetime.date.today():%Y-%m-%d}_{slugify(meta['title'])}"
     out_dir.mkdir(parents=True, exist_ok=True)
-    bg_dir = BASE / "backgrounds"
-    font = cfg.get("font")
+    tcfg = cfg.get("thumbnail", {})
+    fonts = tcfg.get("fonts", {})
+    style = args.style or tcfg.get("style", "auto")
 
-    print("   Erstelle Cover & Thumbnail...")
+    photo = images.pick(BASE, meta, cfg) if style != "bold" else None
+    if photo and photo["path"]:
+        meta["image"] = photo["path"].name
+        meta["image_credit"] = photo["credit"]
+    meta["layout"] = cover.choose_layout(meta, photo, style, tcfg.get("text", "auto"))
+    print(f"   Erstelle Thumbnail & Cover (Stil: {meta['layout']}"
+          f"{', Bild: ' + photo['path'].name if photo and photo['path'] else ''})...")
     vcfg = cfg.get("video", {})
     vw, vh = vcfg.get("width", 1920), vcfg.get("height", 1080)
-    frame = cover.render(meta, (vw, vh), out_dir / "frame.jpg", bg_dir, font)
-    thumb = cover.render(meta, (1280, 720), out_dir / "thumbnail.jpg", bg_dir, font)
-    cover.render(meta, (3000, 3000), out_dir / "cover_3000x3000.jpg", bg_dir, font)
+    show_tag = tcfg.get("producer_tag", True)
+    frame = cover.render(meta, (vw, vh), out_dir / "frame.jpg", photo, meta["layout"], fonts, show_tag)
+    thumb = cover.render(meta, (1280, 720), out_dir / "thumbnail.jpg", photo, meta["layout"], fonts, show_tag)
+    cover.render(meta, (3000, 3000), out_dir / "cover_3000x3000.jpg", photo, meta["layout"], fonts, show_tag)
 
     title = metadata.build_title(meta, cfg)
     tags = metadata.build_tags(meta, cfg)
@@ -86,7 +94,7 @@ def process(audio_path, args, cfg, publish_at, service_getter):
     )
 
     print("   Rendere Video...")
-    mp4 = video.render(frame, audio_path, out_dir / "video.mp4", vw, vh, vcfg.get("waveform", True))
+    mp4 = video.render(frame, audio_path, out_dir / "video.mp4", vw, vh, vcfg.get("waveform", False))
 
     meta.update({"youtube_title": title, "tags": tags, "publish_at": publish_at})
     if args.no_upload:
@@ -117,6 +125,8 @@ def main():
     p.add_argument("--key", help="Tonart überschreiben, z.B. C#m")
     p.add_argument("--genre", help="z.B. Trap, Drill, R&B, Boom Bap")
     p.add_argument("--mood", choices=sorted(cover.PALETTES), help="Farbstil & Stimmung")
+    p.add_argument("--style", choices=["auto"] + cover.LAYOUTS,
+                   help="Thumbnail-Stil (Standard: auto = passend zum Foto)")
     p.add_argument("--paid", action="store_true", help='Ohne "[FREE]" und ohne Free-Lizenz-Text')
     p.add_argument("--no-upload", action="store_true", help="Nur Dateien erzeugen, nicht hochladen")
     p.add_argument("--privacy", choices=["public", "unlisted", "private"])

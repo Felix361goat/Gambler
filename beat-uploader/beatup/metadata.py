@@ -94,6 +94,8 @@ def build_description(meta, cfg, tags):
     if meta.get("free") and cfg.get("license_text"):
         lines += ["⚠️ " + cfg["license_text"], ""]
     lines.append("🔔 Abonnieren für täglich neue Beats!")
+    if meta.get("image_credit"):
+        lines += ["", f"📷 Foto: {meta['image_credit']}"]
     lines.append("")
     hashtags = []
     for a in meta["artists"][:2]:
